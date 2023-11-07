@@ -1,3 +1,4 @@
+# coding= UTF-8
 from random import randint, choice
 from pygame import Surface, SurfaceType
 import pygame
@@ -31,20 +32,13 @@ COLORS = [(255, 0, 0), (255, 165, 0), (255, 255, 0), (0, 128, 0),
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Simple Shooting Game")
 
-# Load images
+# Main images
 background_image = pygame.image.load('data\\image\\nebula.png').convert_alpha()
 background_image = pygame.transform.scale(background_image, (WIDTH, HEIGHT))
-player_img = pygame.image.load('data\\image\\chicken2.png').convert_alpha()
-player_img = pygame.transform.scale(player_img, (50, 75))
-special_target_image = pygame.image.load('data\\image\\special_egg.png').convert_alpha()
-special_target_image = pygame.transform.scale(special_target_image, (80, 80))
 coin_image = pygame.image.load('data\\image\\coin.png').convert_alpha()
 coin_image = pygame.transform.scale(coin_image, (40, 40))  # Adjust the size as needed
-explosion_frames = [
-    pygame.transform.scale(pygame.image.load(f'data\\image\\explosion{frame}.gif').convert_alpha(), (160, 160))
-    for frame in range(1, 3)]
 
-# Load fonts
+# Main fonts
 menu_font = pygame.font.Font('data\\fonts\\OpenSans-Semibold.ttf', 36)
 version_font = pygame.font.Font('data\\fonts\\OpenSans-Regular.ttf', 12)
 credits_font = pygame.font.Font('data\\fonts\\OpenSans-Bold.ttf', 12)
@@ -52,7 +46,7 @@ title_font = pygame.font.Font('data\\fonts\\OpenSans-ExtraBold.ttf', 60)
 big_message_font = pygame.font.Font('data\\fonts\\OpenSans-Bold.ttf', 42)
 high_score_font = pygame.font.Font('data\\fonts\\Pixel.otf', 12)
 
-# Initialize Pygame mixer for sound
+# Initialize mixer
 pygame.mixer.init()
 
 
@@ -83,10 +77,7 @@ def get_player_coins():
     coins = cursor.fetchone()
     connection.close()
 
-    if coins:
-        return coins[0]
-    else:
-        return 0
+    return coins[0] if coins else 0
 
 
 # Function to update the player's coins
@@ -99,10 +90,10 @@ def update_player_coins(coins):
 
 
 # Function to update player statistics (coins and high score)
-def update_player_stats(coins, high_score):
+def update_player_stats(coins, highest_score):
     connection = sqlite3.connect("data\\database\\game_data.db")
     cursor = connection.cursor()
-    cursor.execute("UPDATE players SET coins = ?, high_score = ? WHERE id = 1", (coins, high_score))
+    cursor.execute("UPDATE players SET coins = ?, high_score = ? WHERE id = 1", (coins, highest_score))
     connection.commit()
     connection.close()
 
@@ -112,10 +103,10 @@ def initialize_player():
     coins = get_player_coins()
     if coins is None:
         update_player_coins(0)
-    high_score = get_high_score()
-    if high_score is None:
+    highest_score = get_high_score()
+    if highest_score is None:
         update_high_score(0)
-    return coins, high_score
+    return coins, highest_score
 
 
 # Function to save the player's coins
@@ -127,18 +118,14 @@ def save_player_coins(coins):
 
 
 # Function to get the high score from the database
-# Function to get the high score from the database
 def get_high_score():
     connection = sqlite3.connect("data\\database\\game_data.db")
     cursor = connection.cursor()
     cursor.execute("SELECT high_score FROM players WHERE id=1")
-    high_score = cursor.fetchone()
+    highest_score = cursor.fetchone()
     connection.close()
 
-    if high_score:
-        return high_score[0]
-    else:
-        return 0
+    return highest_score[0] if highest_score else 0
 
 
 # Function to update the high score in the database
@@ -160,10 +147,8 @@ def play_game():
     player_speed = 0  # Initialize player speed
     max_speed = 15  # Maximum speed when controls are held
     deceleration = 0.25  # Deceleration factor for slippery movement
-    current_explosion_frame = -1
     special_egg_destroyed = False
 
-    # Load player image
     player_img: Surface = pygame.image.load('data/image/chicken2.png').convert_alpha()
     player_img = pygame.transform.rotozoom(player_img, 0, 2.0)
     player_img = pygame.transform.scale(player_img, (50, 75))
@@ -174,8 +159,8 @@ def play_game():
     special_target_image: Surface = pygame.image.load('data/image/special_egg.png').convert_alpha()
     special_target_image = pygame.transform.scale(special_target_image, (80, 80))
     explosion_frames: list[Surface | SurfaceType] = [
-        pygame.transform.scale(pygame.image.load('data\\image\\explosion1.gif'), (160, 160)),
-        pygame.transform.scale(pygame.image.load('data\\image\\explosion2.gif'), (160, 160))]
+        pygame.transform.scale(pygame.image.load('data\\image\\explosion2.gif'), (160, 160)),
+        pygame.transform.scale(pygame.image.load('data\\image\\explosion1.gif'), (160, 160))]
     explosion_sound = pygame.mixer.Sound('data\\media\\explosion.wav')
     explosion_frame_index = 0
     explosion_frame_delay = 10
@@ -187,7 +172,7 @@ def play_game():
     spawn_timer = 0  # Initialize a timer for target spawning
     max_targets = MAX_TARGETS  # Set the maximum number of targets
 
-    coins, high_score = initialize_player()  # Initialize player's coins
+    coins, last_highest_score = initialize_player()  # Initialize player's coins
 
     while running:
         for event in pygame.event.get():
@@ -203,12 +188,10 @@ def play_game():
         elif keys[pygame.K_RIGHT]:
             if player_speed < max_speed:
                 player_speed += 0.5
-        else:
-            # Apply deceleration when controls are released
-            if player_speed > 0:
-                player_speed -= deceleration
-            elif player_speed < 0:
-                player_speed += deceleration
+        elif player_speed > 0:
+            player_speed -= deceleration
+        elif player_speed < 0:
+            player_speed += deceleration
 
         # Apply speed to the player's position
         new_x = player_rect.x + player_speed
@@ -321,7 +304,7 @@ def play_game():
 
         # Display the score and coins
         font = pygame.font.Font(None, 36)
-        score_text = font.render("Score: " + str(score), True, RED)
+        score_text = font.render(f"Score: {str(score)}", True, RED)
         coins_text = font.render(str(coins), True, YELLOW)
         screen.blit(coin_image, (10, 50))
         screen.blit(score_text, (10, 10))
@@ -330,13 +313,13 @@ def play_game():
         pygame.display.flip()
         clock.tick(60)
 
-    if score > high_score:
-        high_score = score
+    if score > last_highest_score:
+        last_highest_score = score
 
     # Update coins and high score in the database
-    update_high_score(high_score)
-    update_player_stats(coins, high_score)
-    update_high_score(high_score)
+    update_high_score(last_highest_score)
+    update_player_stats(coins, last_highest_score)
+    update_high_score(last_highest_score)
 
     # Return the targets and bullets for the next game
     return targets, bullets
