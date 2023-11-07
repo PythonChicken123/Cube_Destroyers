@@ -4,6 +4,8 @@ import subprocess
 import sys
 import os
 
+from pygame.mixer import Sound
+
 # List of required libraries
 required_libraries = ['pygame', 'numpy']
 
@@ -194,7 +196,7 @@ def play_game():
     explosion_frames: list[Surface | SurfaceType] = [
         pygame.transform.scale(pygame.image.load(os.path.join('data\\image\\explosion2.gif')), (160, 160)),
         pygame.transform.scale(pygame.image.load(os.path.join('data\\image\\explosion1.gif')), (160, 160))]
-    explosion_sound = pygame.mixer.Sound(os.path.join('data\\media\\explosion.wav'))
+    explosion_sound: Sound = pygame.mixer.Sound(os.path.join('data\\media\\explosion.wav'))
     explosion_frame_index = 0
     explosion_frame_delay = 10
     explosion_frame_counter = 0
