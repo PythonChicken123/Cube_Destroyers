@@ -83,10 +83,7 @@ def get_player_coins():
     coins = cursor.fetchone()
     connection.close()
 
-    if coins:
-        return coins[0]
-    else:
-        return 0
+    return coins[0] if coins else 0
 
 
 # Function to update the player's coins
@@ -135,10 +132,7 @@ def get_high_score():
     high_score = cursor.fetchone()
     connection.close()
 
-    if high_score:
-        return high_score[0]
-    else:
-        return 0
+    return high_score[0] if high_score else 0
 
 
 # Function to update the high score in the database
@@ -203,12 +197,10 @@ def play_game():
         elif keys[pygame.K_RIGHT]:
             if player_speed < max_speed:
                 player_speed += 0.5
-        else:
-            # Apply deceleration when controls are released
-            if player_speed > 0:
-                player_speed -= deceleration
-            elif player_speed < 0:
-                player_speed += deceleration
+        elif player_speed > 0:
+            player_speed -= deceleration
+        elif player_speed < 0:
+            player_speed += deceleration
 
         # Apply speed to the player's position
         new_x = player_rect.x + player_speed
@@ -321,7 +313,7 @@ def play_game():
 
         # Display the score and coins
         font = pygame.font.Font(None, 36)
-        score_text = font.render("Score: " + str(score), True, RED)
+        score_text = font.render(f"Score: {str(score)}", True, RED)
         coins_text = font.render(str(coins), True, YELLOW)
         screen.blit(coin_image, (10, 50))
         screen.blit(score_text, (10, 10))
