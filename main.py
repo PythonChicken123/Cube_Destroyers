@@ -9,7 +9,7 @@ import sqlite3
 pygame.init()
 
 # Constants
-WIDTH, HEIGHT = 800, 600
+WIDTH, HEIGHT = 900, 600
 HALF_WIDTH = WIDTH // 2
 HALF_HEIGHT = HEIGHT // 2
 PLAYER_SPEED = 7.5
@@ -437,7 +437,6 @@ def main_menu():
 pygame.init()
 
 # Constants
-WIDTH, HEIGHT = 800, 600
 pygame.display.set_caption("Simple Shooting Game")
 
 if __name__ == '__main__':
