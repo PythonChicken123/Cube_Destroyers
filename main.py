@@ -1,10 +1,43 @@
 # coding= UTF-8
-from random import randint, choice
-from pygame import Surface, SurfaceType
-import pygame
-import numpy
+import importlib
+import subprocess
 import sys
-import sqlite3
+import os
+
+# List of required libraries
+required_libraries = ['pygame', 'numpy']
+
+# Check if required libraries are installed and install them if missing
+missing_libraries = []
+for lib in required_libraries:
+    try:
+        from random import randint, choice
+        from pygame import Surface, SurfaceType
+        import pygame
+        import numpy
+        import sqlite3
+
+        importlib.import_module(lib)
+    except ModuleNotFoundError:
+        missing_libraries.append(lib)
+
+if missing_libraries:
+    print("The following required libraries are missing and will be installed:")
+    for lib in missing_libraries:
+        print(lib)
+
+    try:
+        for lib in missing_libraries:
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', lib])
+        print("Installation complete.")
+        from random import randint, choice
+        from pygame import Surface, SurfaceType
+        import pygame
+        import numpy
+        import sqlite3
+    except Exception as e:
+        print(f"An error occurred while installing the required libraries: {str(e)}")
+        sys.exit(1)
 
 # Initialize Pygame
 pygame.init()
@@ -33,18 +66,18 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Simple Shooting Game")
 
 # Main images
-background_image = pygame.image.load('data\\image\\nebula.png').convert_alpha()
+background_image = pygame.image.load(os.path.join('data\\image\\nebula.png')).convert_alpha()
 background_image = pygame.transform.scale(background_image, (WIDTH, HEIGHT))
-coin_image = pygame.image.load('data\\image\\coin.png').convert_alpha()
+coin_image = pygame.image.load(os.path.join('data\\image\\coin.png')).convert_alpha()
 coin_image = pygame.transform.scale(coin_image, (40, 40))  # Adjust the size as needed
 
 # Main fonts
-menu_font = pygame.font.Font('data\\fonts\\OpenSans-Semibold.ttf', 36)
-version_font = pygame.font.Font('data\\fonts\\OpenSans-Regular.ttf', 12)
-credits_font = pygame.font.Font('data\\fonts\\OpenSans-Bold.ttf', 12)
-title_font = pygame.font.Font('data\\fonts\\OpenSans-ExtraBold.ttf', 60)
-big_message_font = pygame.font.Font('data\\fonts\\OpenSans-Bold.ttf', 42)
-high_score_font = pygame.font.Font('data\\fonts\\Pixel.otf', 12)
+menu_font = pygame.font.Font(os.path.join('data\\fonts\\OpenSans-Semibold.ttf'), 36)
+version_font = pygame.font.Font(os.path.join('data\\fonts\\OpenSans-Regular.ttf'), 12)
+credits_font = pygame.font.Font(os.path.join('data\\fonts\\OpenSans-Bold.ttf'), 12)
+title_font = pygame.font.Font(os.path.join('data\\fonts\\OpenSans-ExtraBold.ttf'), 60)
+big_message_font = pygame.font.Font(os.path.join('data\\fonts\\OpenSans-Bold.ttf'), 42)
+high_score_font = pygame.font.Font(os.path.join('data\\fonts\\Pixel.otf'), 12)
 
 # Initialize mixer
 pygame.mixer.init()
@@ -53,7 +86,7 @@ pygame.mixer.init()
 # ___________________________________________ DATA BASE ________________________________________________________________
 
 def create_players_table():
-    connection = sqlite3.connect("data\\database\\game_data.db")
+    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
     cursor = connection.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS players (
@@ -71,7 +104,7 @@ create_players_table()
 
 # Function to get the player's coins
 def get_player_coins():
-    connection = sqlite3.connect("data\\database\\game_data.db")
+    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
     cursor = connection.cursor()
     cursor.execute("SELECT coins FROM players WHERE id=1")
     coins = cursor.fetchone()
@@ -82,7 +115,7 @@ def get_player_coins():
 
 # Function to update the player's coins
 def update_player_coins(coins):
-    connection = sqlite3.connect("data\\database\\game_data.db")
+    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
     cursor = connection.cursor()
     cursor.execute("UPDATE players SET coins = ? WHERE id = 1", (coins,))
     connection.commit()
@@ -91,7 +124,7 @@ def update_player_coins(coins):
 
 # Function to update player statistics (coins and high score)
 def update_player_stats(coins, highest_score):
-    connection = sqlite3.connect("data\\database\\game_data.db")
+    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
     cursor = connection.cursor()
     cursor.execute("UPDATE players SET coins = ?, high_score = ? WHERE id = 1", (coins, highest_score))
     connection.commit()
@@ -119,7 +152,7 @@ def save_player_coins(coins):
 
 # Function to get the high score from the database
 def get_high_score():
-    connection = sqlite3.connect("data\\database\\game_data.db")
+    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
     cursor = connection.cursor()
     cursor.execute("SELECT high_score FROM players WHERE id=1")
     highest_score = cursor.fetchone()
@@ -130,7 +163,7 @@ def get_high_score():
 
 # Function to update the high score in the database
 def update_high_score(new_high_score):
-    connection = sqlite3.connect("data\\database\\game_data.db")
+    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
     cursor = connection.cursor()
     cursor.execute("UPDATE players SET high_score = ? WHERE id = 1", (new_high_score,))
     connection.commit()
@@ -149,19 +182,19 @@ def play_game():
     deceleration = 0.25  # Deceleration factor for slippery movement
     special_egg_destroyed = False
 
-    player_img: Surface = pygame.image.load('data/image/chicken2.png').convert_alpha()
+    player_img: Surface = pygame.image.load(os.path.join('data/image/chicken2.png')).convert_alpha()
     player_img = pygame.transform.rotozoom(player_img, 0, 2.0)
     player_img = pygame.transform.scale(player_img, (50, 75))
     player_rect = player_img.get_rect()
     player_rect.center = (WIDTH // 2, HEIGHT - 50)
-    normal_target_image: Surface = pygame.image.load('data/image/egg.png').convert_alpha()
+    normal_target_image: Surface = pygame.image.load(os.path.join('data/image/egg.png')).convert_alpha()
     normal_target_image = pygame.transform.scale(normal_target_image, (40, 40))
-    special_target_image: Surface = pygame.image.load('data/image/special_egg.png').convert_alpha()
+    special_target_image: Surface = pygame.image.load(os.path.join('data/image/special_egg.png')).convert_alpha()
     special_target_image = pygame.transform.scale(special_target_image, (80, 80))
     explosion_frames: list[Surface | SurfaceType] = [
-        pygame.transform.scale(pygame.image.load('data\\image\\explosion2.gif'), (160, 160)),
-        pygame.transform.scale(pygame.image.load('data\\image\\explosion1.gif'), (160, 160))]
-    explosion_sound = pygame.mixer.Sound('data\\media\\explosion.wav')
+        pygame.transform.scale(pygame.image.load(os.path.join('data\\image\\explosion2.gif')), (160, 160)),
+        pygame.transform.scale(pygame.image.load(os.path.join('data\\image\\explosion1.gif')), (160, 160))]
+    explosion_sound = pygame.mixer.Sound(os.path.join('data\\media\\explosion.wav'))
     explosion_frame_index = 0
     explosion_frame_delay = 10
     explosion_frame_counter = 0
@@ -206,7 +239,7 @@ def play_game():
         if keys[pygame.K_SPACE] and shoot_cooldown == 0:
             bullet = (player_rect.centerx, player_rect.top)  # Store bullets as (x, y) tuples
             bullets.append(bullet)
-            pygame.mixer.Sound('data/media/wind_bullet.mp3').play()
+            pygame.mixer.Sound(os.path.join('data/media/wind_bullet.mp3')).play()
             shoot_cooldown = SHOOT_COOLDOWN  # Set the cooldown timer
 
         # Move and remove bullets
