@@ -1,10 +1,9 @@
 # coding= UTF-8
+from functools import wraps
 import importlib
 import subprocess
 import sys
 import os
-
-from pygame.mixer import Sound
 
 # List of required libraries
 required_libraries = ['pygame', 'numpy']
@@ -14,6 +13,7 @@ missing_libraries = []
 for lib in required_libraries:
     try:
         from random import randint, choice
+        from pygame.mixer import Sound, SoundType
         from pygame import Surface, SurfaceType
         import pygame
         import numpy
@@ -52,7 +52,15 @@ PLAYER_SPEED = 7.5
 BULLET_SPEED = 5
 TARGET_SPEED = 3
 MAX_TARGETS = 10
+MAX_FROZEN_DURATION = 5000
+MAX_HASTE_DURATION = 1000
+MAX_HASTE_MULTIPLIER = 2
 SHOOT_COOLDOWN = 3
+DECELERATION = 0.25
+FROZEN_TIMER = 0
+FROZEN_DURATION = 1000
+HASTE_TIMER = 0
+HASTE_DURATION = 300
 BLUE = (0, 0, 255)
 WHITE = (255, 255, 255)
 RED = (255, 0, 0)
@@ -64,6 +72,7 @@ COLORS = [(255, 0, 0), (255, 165, 0), (255, 255, 0), (0, 128, 0),
           (0, 0, 255), (0, 255, 255), (128, 0, 128), (255, 192, 203), (238, 130, 238)]
 
 # Create the game window
+offscreen_surface = pygame.Surface((WIDTH, HEIGHT))
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Simple Shooting Game")
 
@@ -83,6 +92,20 @@ high_score_font = pygame.font.Font(os.path.join('data\\fonts\\Pixel.otf'), 12)
 
 # Initialize mixer
 pygame.mixer.init()
+
+
+def memoize(func):
+    cache = {}
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        key = (args, frozenset(kwargs.items()))
+        if key not in cache:
+            result = func(*args, **kwargs)
+            cache[key] = result
+        return cache[key]
+
+    return wrapper
 
 
 # ___________________________________________ DATA BASE ________________________________________________________________
@@ -173,7 +196,8 @@ def update_high_score(new_high_score):
 
 
 # ______________________________________________ DATA BASE: END ________________________________________________________
-def play_game():
+@memoize
+def play_game():  # sourcery skip: low-code-quality
     # Initialize game variables here
     bullets = []  # Store bullets as (x, y) tuples
     targets = []  # Use 'targets' to keep track of the active targets
@@ -181,7 +205,6 @@ def play_game():
     shoot_cooldown = 0  # Initialize the shoot cooldown timer
     player_speed = 0  # Initialize player speed
     max_speed = 15  # Maximum speed when controls are held
-    deceleration = 0.25  # Deceleration factor for slippery movement
     special_egg_destroyed = False
 
     player_img: Surface = pygame.image.load(os.path.join('data/image/chicken2.png')).convert_alpha()
@@ -191,6 +214,8 @@ def play_game():
     player_rect.center = (WIDTH // 2, HEIGHT - 50)
     normal_target_image: Surface = pygame.image.load(os.path.join('data/image/egg.png')).convert_alpha()
     normal_target_image = pygame.transform.scale(normal_target_image, (40, 40))
+    special_target_frozen_image: Surface = pygame.image.load(os.path.join('data/image/frozen_special_egg2.png')).convert_alpha()
+    special_target_frozen_image = pygame.transform.scale(special_target_frozen_image, (90, 90))
     special_target_image: Surface = pygame.image.load(os.path.join('data/image/special_egg.png')).convert_alpha()
     special_target_image = pygame.transform.scale(special_target_image, (80, 80))
     explosion_frames: list[Surface | SurfaceType] = [
@@ -224,9 +249,9 @@ def play_game():
             if player_speed < max_speed:
                 player_speed += 0.5
         elif player_speed > 0:
-            player_speed -= deceleration
+            player_speed -= DECELERATION
         elif player_speed < 0:
-            player_speed += deceleration
+            player_speed += DECELERATION
 
         # Apply speed to the player's position
         new_x = player_rect.x + player_speed
@@ -241,7 +266,7 @@ def play_game():
         if keys[pygame.K_SPACE] and shoot_cooldown == 0:
             bullet = (player_rect.centerx, player_rect.top)  # Store bullets as (x, y) tuples
             bullets.append(bullet)
-            pygame.mixer.Sound(os.path.join('data/media/wind_bullet.mp3')).play()
+            pygame.mixer.Sound(os.path.join('data', 'media', 'wind_bullet.mp3')).play()
             shoot_cooldown = SHOOT_COOLDOWN  # Set the cooldown timer
 
         # Move and remove bullets
@@ -251,15 +276,17 @@ def play_game():
         spawn_timer += 1
         if spawn_timer >= numpy.sin(60):  # You can adjust this value to control target spawn frequency
             if len(targets) < max_targets:
-                if randint(1, 100) < 2:
+                if randint(1, 100) < 10:
                     # Create a special target
                     special_target = pygame.Rect(randint(0, WIDTH - 30), 0, 30, 30)
                     special_color = BLUE
                     special_health = 3
+                    special_frozen = True
+                    special_haste = False
                     # Use the loaded special_target_image for the special target
                     targets.append({'rect': special_target, 'image': special_target_image, 'color': special_color,
                                     'health': special_health, 'score': 3, 'is_special': True,
-                                    'coins': randint(3, 10)})
+                                    'coins': randint(3, 10), 'frozen': special_frozen, 'haste': special_haste})
                 else:
                     # Create a normal target
                     normal_target = pygame.Rect(randint(0, WIDTH - 30), 0, 30, 30)
@@ -267,25 +294,17 @@ def play_game():
                     normal_health = 1
                     targets.append(
                         {'rect': normal_target, 'color': normal_color, 'health': normal_health, 'score': 1,
-                         'coins': randint(1, 2), 'image': normal_target_image})
+                         'coins': randint(1, 2), 'image': normal_target_image, 'frozen': False, 'haste': False})
             spawn_timer = 0  # Reset the spawn timer
 
         # Move and remove targets
-        new_targets = []
-        for target in targets:
-            target['rect'].y += TARGET_SPEED
-            if target.get('is_special', False):
-                # Apply a spinning animation to the special target
-                target['rotation_angle'] = (target.get('rotation_angle', 0) + 2) % 360
-                rotated_surface = pygame.transform.rotate(target['image'], target['rotation_angle'])
-                target['rect'] = rotated_surface.get_rect(center=target['rect'].center)
-                screen.blit(rotated_surface, target['rect'].topleft)
-            else:
-                pygame.draw.rect(screen, target['color'], target['rect'])
+        targets = list(map(lambda target: {**target, 'rect': target['rect'].move(0, TARGET_SPEED)}, targets))
 
-            # Only keep targets that are within the window
-            if target['rect'].bottom <= HEIGHT:
-                new_targets.append(target)
+        new_targets = [target for target in targets if
+                       not target.get('is_special', False) and target['rect'].bottom <= HEIGHT]
+
+        for target in new_targets:
+            pygame.draw.rect(screen, target['color'], target['rect'])
 
         targets = new_targets
 
@@ -296,7 +315,7 @@ def play_game():
                         pygame.Rect(bullet[0] - 2, bullet[1], 4, 10)):  # Create a temporary rect for the bullet
                     bullets.pop(i)
                     if target.get('is_special', False):
-                        special_egg_position = target['rect'].topleft
+                        special_egg_position = target['rect'].topright
                         special_egg_destroyed = True
                         explosion_rect.topleft = special_egg_position
                         explosion_frame_index = 0
@@ -329,13 +348,24 @@ def play_game():
         # Draw the targets
         for target in targets:
             if target.get('is_special', False):
-                # Apply a spinning animation to the special target
-                target['rotation_angle'] = (target.get('rotation_angle', 0) + 2) % 360
-                rotated_surface = pygame.transform.rotate(target['image'], target['rotation_angle'])
-                target['rect'] = rotated_surface.get_rect(center=target['rect'].center)
-                screen.blit(rotated_surface, target['rect'].topleft)
+                if target.get('frozen', True):
+                    target['image'] = special_target_frozen_image
+                    target['rotation_angle'] = (target.get('rotation_angle', 0) + 0.5) % 360
+                    rotated_surface = pygame.transform.rotate(target['image'], target['rotation_angle'])
+                    target['rect'] = rotated_surface.get_rect(center=target['rect'].center)
+                    screen.blit(rotated_surface, target['rect'].topleft)
+                    print("Target frozen")
+                else:
+                    # Apply a spinning animation to the special target
+                    target['rotation_angle'] = (target.get('rotation_angle', 0) + 2) % 360
+                    rotated_surface = pygame.transform.rotate(target['image'], target['rotation_angle'])
+                    target['rect'] = rotated_surface.get_rect(center=target['rect'].center)
+                    screen.blit(rotated_surface, target['rect'].topleft)
             else:
                 pygame.draw.rect(screen, target['color'], target['rect'])
+
+        # Draw everything to the off-screen surface
+        offscreen_surface.fill((0, 0, 0))  # Clear the off-screen surface
 
         # Display the score and coins
         font = pygame.font.Font(None, 36)
@@ -388,13 +418,13 @@ def main_menu():
                     selected_option = (selected_option - 1) % len(options)
                 if event.key == pygame.K_DOWN:
                     selected_option = (selected_option + 1) % len(options)
-                if event.key == pygame.K_RETURN:
-                    if selected_option == 0:
+                if selected_option == 0:
+                    if event.key == pygame.K_RETURN:
                         return play_game()
-                    elif selected_option == 1:
-                        pygame.quit()
-                        sys.exit()
-                # Handle mouse click events
+                elif selected_option == 1:
+                    if event.key == pygame.K_RETURN:
+                        _extracted_from_main_menu_33()
+            # Handle mouse click events
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left mouse button
                     x, y = event.pos
@@ -408,9 +438,7 @@ def main_menu():
                                 # Play the game
                                 return play_game()
                             elif i == 1:
-                                pygame.quit()
-                                sys.exit()
-
+                                _extracted_from_main_menu_33()
         screen.fill(WHITE)
         screen.blit(background_image, (0, 0))
         title_y += 1 * numpy.sin(current_time / 60)
@@ -449,6 +477,13 @@ def main_menu():
         screen.blit(high_score_text, high_score_rect)
 
         pygame.display.flip()
+
+
+# TODO Rename this here and in `main_menu`
+def _extracted_from_main_menu_33():
+    pygame.mixer.quit()
+    pygame.quit()
+    sys.exit()
 
 
 # Initialize Pygame
