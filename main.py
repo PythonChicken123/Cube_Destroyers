@@ -1,4 +1,5 @@
 # coding= UTF-8
+# TODO: Complete required library
 from functools import wraps
 import importlib
 import subprocess
@@ -6,15 +7,24 @@ import sys
 import os
 
 # List of required libraries
-required_libraries = ['pygame', 'numpy']
+required_libraries = ['wheel', 'pyinstaller', 'pygame', 'numpy']
 
 # Check if required libraries are installed and install them if missing
 missing_libraries = []
 for lib in required_libraries:
     try:
+        if sys.platform.startswith('win'):
+            import ctypes
+
+            # Configuration on the Windows file
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                u'CompanyName.ProductName.SubProduct.VersionInformation')  # Arbitrary string
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            os.chdir(sys._MEIPASS)
         from random import randint, choice
         from pygame.mixer import Sound, SoundType
         from pygame import Surface, SurfaceType
+        from pygame.locals import *
         import pygame
         import numpy
         import sqlite3
@@ -32,8 +42,14 @@ if missing_libraries:
         for lib in missing_libraries:
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', lib])
         print("Installation complete.")
+        if sys.platform.startswith('win'):
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                u'CompanyName.ProductName.SubProduct.VersionInformation')  # Arbitrary string
         from random import randint, choice
         from pygame import Surface, SurfaceType
+        from pygame.locals import *
         import pygame
         import numpy
         import sqlite3
@@ -61,6 +77,7 @@ FROZEN_TIMER = 0
 FROZEN_DURATION = 1000
 HASTE_TIMER = 0
 HASTE_DURATION = 300
+FPS = 180
 BLUE = (0, 0, 255)
 WHITE = (255, 255, 255)
 RED = (255, 0, 0)
@@ -74,7 +91,8 @@ COLORS = [(255, 0, 0), (255, 165, 0), (255, 255, 0), (0, 128, 0),
 # Create the game window
 offscreen_surface = pygame.Surface((WIDTH, HEIGHT))
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Simple Shooting Game")
+pygame.display.set_caption("Advanced Shooting Game")
+pygame.display.set_icon(pygame.image.load(os.path.join("data", "image", "frozen_special_egg2.png")).convert_alpha())
 
 # Main images
 background_image = pygame.image.load(os.path.join('data\\image\\nebula.png')).convert_alpha()
@@ -108,10 +126,19 @@ def memoize(func):
     return wrapper
 
 
+@memoize
+def calculate_lighting(distance):
+    max_light = 255
+    min_light = 200
+    attenuation = 0.01  # Adjust this value for different lighting effects
+    intensity = max_light / (1 + attenuation * distance)
+    return max(min_light, intensity)
+
+
 # ___________________________________________ DATA BASE ________________________________________________________________
 
 def create_players_table():
-    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    connection = sqlite3.connect(os.path.join("data", "database", "game_data.db"))
     cursor = connection.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS players (
@@ -129,7 +156,7 @@ create_players_table()
 
 # Function to get the player's coins
 def get_player_coins():
-    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    connection = sqlite3.connect(os.path.join("data", "database", "game_data.db"))
     cursor = connection.cursor()
     cursor.execute("SELECT coins FROM players WHERE id=1")
     coins = cursor.fetchone()
@@ -140,7 +167,7 @@ def get_player_coins():
 
 # Function to update the player's coins
 def update_player_coins(coins):
-    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    connection = sqlite3.connect(os.path.join("data", "database", "game_data.db"))
     cursor = connection.cursor()
     cursor.execute("UPDATE players SET coins = ? WHERE id = 1", (coins,))
     connection.commit()
@@ -149,7 +176,7 @@ def update_player_coins(coins):
 
 # Function to update player statistics (coins and high score)
 def update_player_stats(coins, highest_score):
-    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    connection = sqlite3.connect(os.path.join("data", "database", "game_data.db"))
     cursor = connection.cursor()
     cursor.execute("UPDATE players SET coins = ?, high_score = ? WHERE id = 1", (coins, highest_score))
     connection.commit()
@@ -177,7 +204,7 @@ def save_player_coins(coins):
 
 # Function to get the high score from the database
 def get_high_score():
-    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    connection = sqlite3.connect(os.path.join("data", "database", "game_data.db"))
     cursor = connection.cursor()
     cursor.execute("SELECT high_score FROM players WHERE id=1")
     highest_score = cursor.fetchone()
@@ -188,7 +215,7 @@ def get_high_score():
 
 # Function to update the high score in the database
 def update_high_score(new_high_score):
-    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    connection = sqlite3.connect(os.path.join("data", "database", "game_data.db"))
     cursor = connection.cursor()
     cursor.execute("UPDATE players SET high_score = ? WHERE id = 1", (new_high_score,))
     connection.commit()
@@ -207,21 +234,22 @@ def play_game():  # sourcery skip: low-code-quality
     max_speed = 15  # Maximum speed when controls are held
     special_egg_destroyed = False
 
-    player_img: Surface = pygame.image.load(os.path.join('data/image/chicken2.png')).convert_alpha()
+    player_img: Surface = pygame.image.load(os.path.join('data', 'image', 'chicken2.png')).convert_alpha()
     player_img = pygame.transform.rotozoom(player_img, 0, 2.0)
     player_img = pygame.transform.scale(player_img, (50, 75))
     player_rect = player_img.get_rect()
     player_rect.center = (WIDTH // 2, HEIGHT - 50)
-    normal_target_image: Surface = pygame.image.load(os.path.join('data/image/egg.png')).convert_alpha()
+    normal_target_image: Surface = pygame.image.load(os.path.join('data', 'image', 'egg.png')).convert_alpha()
     normal_target_image = pygame.transform.scale(normal_target_image, (40, 40))
-    special_target_frozen_image: Surface = pygame.image.load(os.path.join('data/image/frozen_special_egg2.png')).convert_alpha()
+    special_target_frozen_image: Surface = pygame.image.load(
+        os.path.join('data', 'image', 'frozen_special_egg2.png')).convert_alpha()
     special_target_frozen_image = pygame.transform.scale(special_target_frozen_image, (90, 90))
-    special_target_image: Surface = pygame.image.load(os.path.join('data/image/special_egg.png')).convert_alpha()
+    special_target_image: Surface = pygame.image.load(os.path.join('data', 'image', 'special_egg.png')).convert_alpha()
     special_target_image = pygame.transform.scale(special_target_image, (80, 80))
     explosion_frames: list[Surface | SurfaceType] = [
-        pygame.transform.scale(pygame.image.load(os.path.join('data\\image\\explosion2.gif')), (160, 160)),
-        pygame.transform.scale(pygame.image.load(os.path.join('data\\image\\explosion1.gif')), (160, 160))]
-    explosion_sound: Sound = pygame.mixer.Sound(os.path.join('data\\media\\explosion.wav'))
+        pygame.transform.scale(pygame.image.load(os.path.join('data', 'image', 'explosion2.gif')), (160, 160)),
+        pygame.transform.scale(pygame.image.load(os.path.join('data', 'image', 'explosion1.gif')), (160, 160))]
+    explosion_sound: Sound = pygame.mixer.Sound(os.path.join('data', 'media', 'explosion.wav'))
     explosion_frame_index = 0
     explosion_frame_delay = 10
     explosion_frame_counter = 0
@@ -238,6 +266,7 @@ def play_game():  # sourcery skip: low-code-quality
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+                exit_game()
 
         keys = pygame.key.get_pressed()
 
@@ -343,7 +372,12 @@ def play_game():  # sourcery skip: low-code-quality
             special_egg_destroyed = False
             explosion_frame_index = -1
 
-        screen.blit(player_img, player_rect)
+        player_center = pygame.Vector2(player_rect.center)
+        lighting_intensity = calculate_lighting(player_center.distance_to(pygame.Vector2(WIDTH // 2, HEIGHT // 2)))
+        player_img_with_lighting = pygame.Surface(player_img.get_size(), pygame.SRCALPHA)
+        player_img_with_lighting.fill((255, 255, 255, lighting_intensity))
+        player_img_with_lighting.blit(player_img, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        screen.blit(player_img_with_lighting, player_rect)
 
         # Draw the targets
         for target in targets:
@@ -376,7 +410,7 @@ def play_game():  # sourcery skip: low-code-quality
         screen.blit(coins_text, (55, 50))
 
         pygame.display.flip()
-        clock.tick(60)
+        clock.tick(FPS)
 
     if score > last_highest_score:
         last_highest_score = score
@@ -390,7 +424,9 @@ def play_game():  # sourcery skip: low-code-quality
     return targets, bullets
 
 
+@memoize
 def main_menu():
+    pygame.time.set_timer(USEREVENT, 1000 // FPS)
     selected_option = -1  # Initialize with no option selected
     options = ["Play", "Quit"]
     last_flash_time = pygame.time.get_ticks()
@@ -411,8 +447,7 @@ def main_menu():
         current_time = pygame.time.get_ticks()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                exit_game()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_UP:
                     selected_option = (selected_option - 1) % len(options)
@@ -420,10 +455,10 @@ def main_menu():
                     selected_option = (selected_option + 1) % len(options)
                 if selected_option == 0:
                     if event.key == pygame.K_RETURN:
-                        return play_game()
+                        play_game()
                 elif selected_option == 1:
                     if event.key == pygame.K_RETURN:
-                        _extracted_from_main_menu_33()
+                        exit_game()
             # Handle mouse click events
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left mouse button
@@ -436,16 +471,21 @@ def main_menu():
                         if option_rect.collidepoint(x, y):
                             if i == 0:
                                 # Play the game
-                                return play_game()
+                                play_game()
                             elif i == 1:
-                                _extracted_from_main_menu_33()
-        screen.fill(WHITE)
+                                exit_game()
         screen.blit(background_image, (0, 0))
         title_y += 1 * numpy.sin(current_time / 60)
         title_text = title_font.render("Chicken Cube Destroyers", True, RED)
         title_rect = title_text.get_rect()
         title_rect.centerx = WIDTH // 2
         title_rect.y = title_y
+        title_center = pygame.Vector2(title_rect.center)
+        lighting_intensity = calculate_lighting(title_center.distance_to(pygame.Vector2(WIDTH // 2, HEIGHT // 2)))
+        title_text_with_lighting = pygame.Surface(title_text.get_size(), pygame.SRCALPHA)
+        title_text_with_lighting.fill((255, 255, 255, lighting_intensity))
+        title_text_with_lighting.blit(title_text, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        screen.blit(title_text_with_lighting, title_rect)
 
         # Create option rectangles for mouse interaction
         option_rects = []
@@ -479,20 +519,18 @@ def main_menu():
         pygame.display.flip()
 
 
-# TODO Rename this here and in `main_menu`
-def _extracted_from_main_menu_33():
+def exit_game():
     pygame.mixer.quit()
+    pygame.display.quit()
     pygame.quit()
     sys.exit()
 
 
-# Initialize Pygame
-pygame.init()
-
 # Constants
-pygame.display.set_caption("Simple Shooting Game")
+pygame.display.set_caption("Advanced Shooting Game")
 
 if __name__ == '__main__':
     high_score = get_high_score()
     print(high_score)
+    pygame.init()
     main_menu()
