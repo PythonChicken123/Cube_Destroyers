@@ -37,4 +37,4 @@ To play the game, you need:
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/your-username/chicken-cube-destroyers.git
+   git clone [https://github.com/PythonChicken123/Cube_Destroyers.git]
