@@ -1,20 +1,38 @@
 # coding= UTF-8
 """
 This code has been previously reverted to an old version due to bug fixes
-# TODO: Improve pygame.mixer using compare.py
-# TODO: Improve required libraries
+# TODO: Color printing coding
 """
 
+from functools import wraps, lru_cache
 import importlib
-import itertools
 import subprocess
 import sys
 import os
+from sqlite3 import Connection, Cursor
+from typing import *
 
-from pygame.rect import RectType
+from pygame.font import Font
+
+
+# ANSI escape codes for colors
+class Colors:
+    HEADER: str = '\033[95m'
+    OKBLUE: str = '\033[94m'
+    OKGREEN: str = '\033[92m'
+    WARNING: str = '\033[93m'
+    FAIL: str = '\033[91m'
+    ENDC: str = '\033[0m'
+    BOLD: str = '\033[1m'
+    UNDERLINE: str = '\033[4m'
+    OKMAGENTA: str = '\033[95m'
+    OKCYAN: str = '\033[96m'
+    OKYELLOW: str = '\033[93m'
+    OKORANGE: str = '\033[33m'
+
 
 # List of required libraries
-required_libraries = ['pygame', 'numpy']
+required_libraries = ['pygame', 'numpy', 'PyMySQL']
 
 # Check if required libraries are installed and install them if missing
 missing_libraries = []
@@ -27,8 +45,9 @@ for lib in required_libraries:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
                 u'CompanyName.ProductName.SubProduct.VersionInformation')  # Arbitrary string
         from random import randint, choice
-        from pygame.mixer import Sound, SoundType
+        from pygame.mixer import Sound, SoundType, Channel
         from pygame import Surface, SurfaceType, Vector2, Rect
+        from pygame.rect import RectType
         from pygame.locals import *
         import pygame
         import numpy
@@ -39,13 +58,13 @@ for lib in required_libraries:
         missing_libraries.append(lib)
 
 if missing_libraries:
-    print("The following required libraries are missing and will be installed:")
+    print(f"{Colors.OKGREEN}The following required libraries are missing and will be installed:{Colors.ENDC}")
     for lib in missing_libraries:
-        print(lib)
+        print(Colors.BOLD + Colors.OKORANGE + lib + Colors.ENDC)
     try:
         for lib in missing_libraries:
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', lib])
-        print("Installation complete.")
+        print(f"{Colors.BOLD + Colors.OKGREEN}Installation complete.{Colors.ENDC}")
         if sys.platform.startswith('win'):
             import ctypes
 
@@ -53,12 +72,12 @@ if missing_libraries:
                 u'CompanyName.ProductName.SubProduct.VersionInformation')  # Arbitrary string
         from random import randint, choice
         from pygame import Surface, SurfaceType
-        from pygame.locals import *
+        from pygame.rect import RectType
         import pygame
         import numpy
         import sqlite3
     except Exception as e:
-        print(f"An error occurred while installing the required libraries: {str(e)}")
+        print(f"{Colors.FAIL}An error occurred while installing the required libraries: {Colors.ENDC + str(e)}")
         sys.exit(1)
 
 # Initialize Pygame and Mixer
@@ -70,13 +89,15 @@ pygame.mixer.init(frequency=44100, size=-16, channels=16, buffer=512, devicename
 pygame.mixer.get_init()
 
 # Constants
+HEIGHT: int
+WIDTH: int
 WIDTH, HEIGHT = 900, 600
 HALF_WIDTH = WIDTH // 2
 HALF_HEIGHT = HEIGHT // 2
 PLAYER_SPEED = 7.5
 BULLET_SPEED = 5
 TARGET_SPEED = 3
-MAX_TARGETS = 10000000
+MAX_TARGETS = 15
 MAX_FROZEN_DURATION = 5000
 MAX_HASTE_DURATION = 1000
 MAX_HASTE_MULTIPLIER = 2
@@ -88,7 +109,7 @@ FROZEN_TIMER = 0
 FROZEN_DURATION = 1000
 HASTE_TIMER = 0
 HASTE_DURATION = 300
-FPS = 60
+FPS: int = 60  # Frames Per Second
 BLUE = (0, 0, 255)
 WHITE = (255, 255, 255)
 RED = (255, 0, 0)
@@ -99,31 +120,68 @@ LIGHT_BLUE = (173, 216, 230)
 LIGHT_COLOR = (255, 255, 200)
 DARK_COLOR = (50, 50, 50)
 PLAYER_COLOR = (255, 0, 0)
-COLORS = [(255, 0, 0), (255, 165, 0), (255, 255, 0), (0, 128, 0),
-          (0, 0, 255), (0, 255, 255), (128, 0, 128), (255, 192, 203), (238, 130, 238)]
+COLORS: list[tuple[int, int, int]] = [(255, 0, 0), (255, 165, 0), (255, 255, 0), (0, 128, 0),
+                                      (0, 0, 255), (0, 255, 255), (128, 0, 128), (255, 192, 203), (238, 130, 238)]
+
+
+def memoize(func):
+    """
+    :param func:
+    :return:
+    """
+    cache: dict[Any, Any] = {}
+
+    @wraps(func)
+    def wrapper(*args: object, **kwargs: object):
+        key: tuple[tuple[object, ...], frozenset[tuple[str, object]]] = (args, frozenset(kwargs.items()))
+        if key not in cache:
+            result: object = func(*args, **kwargs)
+            cache[key] = result
+        return cache[key]
+
+    return wrapper
 
 
 # Initialize player and light
+@lru_cache(maxsize=None)
 def calculate_lighting(distance):
-    max_light = 255
-    min_light = 200
-    attenuation = 0.01  # Adjust this value for different lighting effects
-    intensity = max_light / (1 + attenuation * distance)
-    return max(min_light, intensity)
+    try:
+        max_light: int
+        min_light: int
+        max_light, min_light = 255, 225
+        attenuation: float = 0.01  # Adjust this value for different lighting effects
+        # Ensure that distance is a positive value to prevent division by zero
+        intensity: int = max_light / (1 + attenuation * distance)
+        return max(min_light, intensity)
+    except Exception as exception:
+        raise AttributeError(
+            f"Error in calculate_lighting: {str(exception)}"
+        ) from exception
 
 
-def mixer_play(relative_path):
+def mixer_play(relative_path: Sound):
+    """
+    :rtype: Sound
+    :param relative_path:
+    """
     if relative_path:
         # Find a Channel to play multiple sounds with no buffer
-        channel = relative_path.play()
+        channel: Channel = relative_path.play()
         if not channel:
-            channel = pygame.mixer.find_channel(force=True)
-            channel.play(relative_path)
+            try:
+                channel = pygame.mixer.find_channel(force=True)
+                channel.play(relative_path)
+            except Exception as exception:
+                raise FileNotFoundError(
+                    f"An error occurred while searching for the following file '{relative_path}' : {exception}"
+                ) from exception
         if channel:
             relative_path.play()
 
 
-# Collect resource_path on PyInstaller --add_data for usage inside a Executable file
+# Collect resource_path on PyInstaller --add_data for usage inside a executable file
+@memoize
+@lru_cache(maxsize=None)
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller"""
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
@@ -131,31 +189,32 @@ def resource_path(relative_path):
 
 
 # Create the game window
-offscreen_surface = pygame.Surface((WIDTH, HEIGHT))
+offscreen_surface: Surface = pygame.Surface((WIDTH, HEIGHT))
 screen: Surface | SurfaceType = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Advanced Shooting Game")
 pygame.display.set_icon(pygame.image.load(resource_path('data\\image\\frozen_special_egg2.png')).convert_alpha())
 
 # Main images
-background_image = pygame.image.load(resource_path('data\\image\\nebula2.png')).convert_alpha()
+background_image: Surface = pygame.image.load(resource_path('data\\image\\nebula2.png')).convert_alpha()
 background_image = pygame.transform.scale(background_image, (WIDTH, HEIGHT))
-coin_image = pygame.image.load(resource_path('data\\image\\coin.png')).convert_alpha()
+coin_image: Surface = pygame.image.load(resource_path('data\\image\\coin.png')).convert_alpha()
 coin_image = pygame.transform.scale(coin_image, (40, 40))  # Adjust the size as needed
 
 # Main fonts
-menu_font = pygame.font.Font(resource_path('data\\fonts\\OpenSans-Semibold.ttf'), 36)
-version_font = pygame.font.Font(resource_path('data\\fonts\\OpenSans-Regular.ttf'), 12)
-credits_font = pygame.font.Font(resource_path('data\\fonts\\OpenSans-Bold.ttf'), 12)
-title_font = pygame.font.Font(resource_path('data\\fonts\\OpenSans-ExtraBold.ttf'), 60)
-big_message_font = pygame.font.Font(resource_path('data\\fonts\\OpenSans-Bold.ttf'), 42)
-high_score_font = pygame.font.Font(resource_path('data\\fonts\\Pixel.otf'), 12)
+menu_font: Font = pygame.font.Font(resource_path('data\\fonts\\OpenSans-Semibold.ttf'), 36)
+version_font: Font = pygame.font.Font(resource_path('data\\fonts\\OpenSans-Regular.ttf'), 12)
+credits_font: Font = pygame.font.Font(resource_path('data\\fonts\\OpenSans-Bold.ttf'), 12)
+title_font: Font = pygame.font.Font(resource_path('data\\fonts\\OpenSans-ExtraBold.ttf'), 60)
+big_message_font: Font = pygame.font.Font(resource_path('data\\fonts\\OpenSans-Bold.ttf'), 42)
+high_score_font: Font = pygame.font.Font(resource_path('data\\fonts\\Pixel.otf'), 12)
 
 
 # ___________________________________________ DATA BASE ________________________________________________________________
 
+@lru_cache(maxsize=None)
 def create_players_table():
-    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
-    cursor = connection.cursor()
+    connection: Connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    cursor: Cursor = connection.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS players (
             id INTEGER PRIMARY KEY,
@@ -171,37 +230,45 @@ create_players_table()
 
 
 # Function to get the player's coins
+@memoize
+@lru_cache(maxsize=None)
 def get_player_coins():
-    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
-    cursor = connection.cursor()
+    connection: Connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    cursor: Cursor = connection.cursor()
     cursor.execute("SELECT coins FROM players WHERE id=1")
-    coins = cursor.fetchone()
+    coins: tuple[list[int]] = cursor.fetchone()
     connection.close()
 
     return coins[0] if coins else 0
 
 
 # Function to update the player's coins
+@memoize
+@lru_cache(maxsize=None)
 def update_player_coins(coins):
-    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
-    cursor = connection.cursor()
+    connection: Connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    cursor: Cursor = connection.cursor()
     cursor.execute("UPDATE players SET coins = ? WHERE id = 1", (coins,))
     connection.commit()
     connection.close()
 
 
 # Function to update player statistics (coins and high score)
+@memoize
+@lru_cache(maxsize=None)
 def update_player_stats(coins, highest_score):
-    connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
-    cursor = connection.cursor()
+    connection: Connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    cursor: Cursor = connection.cursor()
     cursor.execute("UPDATE players SET coins = ?, high_score = ? WHERE id = 1", (coins, highest_score))
     connection.commit()
     connection.close()
 
 
 # Initialize player
+@memoize
+@lru_cache(maxsize=None)
 def initialize_player():
-    coins = get_player_coins()
+    coins: tuple[list[int]] = get_player_coins()
     if coins is None:
         update_player_coins(0)
     highest_score = get_high_score()
@@ -211,6 +278,8 @@ def initialize_player():
 
 
 # Function to save the player's coins
+@memoize
+@lru_cache(maxsize=None)
 def save_player_coins(coins):
     update_player_coins(coins)
 
@@ -219,6 +288,8 @@ def save_player_coins(coins):
 
 
 # Function to get the high score from the database
+@memoize
+@lru_cache(maxsize=None)
 def get_high_score():
     connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
     cursor = connection.cursor()
@@ -230,6 +301,8 @@ def get_high_score():
 
 
 # Function to update the high score in the database
+@memoize
+@lru_cache(maxsize=None)
 def update_high_score(new_high_score):
     connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
     cursor = connection.cursor()
@@ -239,23 +312,37 @@ def update_high_score(new_high_score):
 
 
 # ______________________________________________ DATA BASE: END ________________________________________________________
+PLAYER_SIZE: int = 30
 
+walls: list[Rect] = [
+    pygame.Rect(100, 100, 20, 200),
+    pygame.Rect(300, 50, 20, 150),
+    pygame.Rect(500, 200, 20, 100),
+    pygame.Rect(700, 100, 20, 200),
+]
+
+
+@memoize
 def play_game():  # sourcery skip: low-code-quality
     """ :return: """
     # Initialize game variables here
-    bullets = []  # Store bullets as (x, y) tuples
-    targets = []  # Use 'targets' to keep track of the active targets
-    score = 0
-    shoot_cooldown = 0  # Initialize the shoot cooldown timer
-    player_speed = 0  # Initialize player speed
-    max_speed = 15  # Maximum speed when controls are held
-    deceleration = 0.25  # Deceleration factor for slippery movement
-    special_egg_destroyed = False
+    bullets: list[tuple[Any, Any]] = []  # Store bullets as (x, y) tuples
+    targets: list[dict[str, Rect | Surface | SurfaceType | int | bool | tuple[int, int, int]] | dict[
+        str, Rect | Surface | SurfaceType | int | bool | tuple[
+            int, int, int]]] = []  # Use 'targets' to keep track of the active targets
+    score: int = 0
+    shoot_cooldown: int = 0  # Initialize the shoot cooldown timer
+    player_speed: int = 0  # Initialize player speed
+    max_speed: int = 15  # Maximum speed when controls are held
+    deceleration: float = 0.25  # Deceleration factor for slippery movement
+    special_egg_destroyed: bool = False
+    iterable = range(10)
 
     player_img: Surface = pygame.image.load(resource_path('data\\image\\chicken2.png')).convert_alpha()
     player_img = pygame.transform.rotozoom(player_img, 0, 2.0)
     player_img = pygame.transform.scale(player_img, (50, 75))
-    player_rect: Rect | RectType = player_img.get_rect()
+    player_rect = pygame.Rect(WIDTH // 2 - PLAYER_SIZE // 2, HEIGHT // 2 - PLAYER_SIZE // 2, PLAYER_SIZE, PLAYER_SIZE)
+    player_rect: Rect | RectType = player_img.get_rect() or player_rect
     player_rect.center = (WIDTH // 2, HEIGHT - 50)
     normal_target_image: Surface = pygame.image.load(resource_path('data\\image\\egg.png')).convert_alpha()
     normal_target_image = pygame.transform.scale(normal_target_image, (40, 40))
@@ -315,8 +402,25 @@ def play_game():  # sourcery skip: low-code-quality
             pygame.mixer.Sound(os.path.join('data/media/wind_bullet.mp3')).play()
             shoot_cooldown = SHOOT_COOLDOWN  # Set the cooldown timer
 
+        while not pygame.display.get_active():
+            list(map(lambda _: pygame.time.wait(1) or pygame.event.pump(), iterable))
+
         # Move and remove bullets
-        bullets = [(x, y - BULLET_SPEED) for x, y in bullets if y > 0]
+        bullets = [(x, y - BULLET_SPEED) for x, y in bullets if y > 0.1]
+
+        list(map(lambda wall: pygame.draw.rect(screen, WHITE, wall), walls))
+
+        player_center = player_rect.center
+        angle = numpy.radians(45)  # Example angle, you can change this
+        ray_length = 200
+
+        end_point = (
+            player_center[0] + ray_length * numpy.cos(angle),
+            player_center[1] + ray_length * numpy.sin(angle)
+        )
+
+        # Draw the ray
+        pygame.draw.line(screen, RED, player_center, end_point, 2)
 
         # Check if it's time to spawn a new target
         spawn_timer += 1
@@ -357,9 +461,8 @@ def play_game():  # sourcery skip: low-code-quality
             else:
                 pygame.draw.rect(screen, target['color'], target['rect'])
 
-            # Only keep targets that are within the window
-            if target['rect'].bottom <= HEIGHT:
-                new_targets.append(target)
+            new_targets = list(map(lambda target: target if target['rect'].bottom <= HEIGHT else None, targets))
+            new_targets = list(filter(lambda target: target is not None, new_targets))
 
         targets = new_targets
 
@@ -388,19 +491,33 @@ def play_game():  # sourcery skip: low-code-quality
         screen.blit(background_image, (0, 0))  # Set the background image
 
         # Draw bullets and targets first
-        for bullet in bullets:
-            pygame.draw.rect(screen, RED, pygame.Rect(bullet[0] - 2, bullet[1], 4, 10))
+        bullet_rects = list(map(lambda bullet: pygame.Rect(bullet[0] - 2, bullet[1], 4, 10), bullets))
+        list(map(lambda rect: pygame.draw.rect(screen, RED, rect), bullet_rects))
 
-        if special_egg_destroyed and 0 <= explosion_frame_index < len(explosion_frames):
+        def perform_explosion():
+            nonlocal explosion_frame_index, explosion_frame_counter, special_egg_destroyed
+
             screen.blit(explosion_frames[explosion_frame_index], explosion_rect.topleft)
             explosion_frame_counter += 1
             mixer_play(explosion_sound)
+
             if explosion_frame_counter >= explosion_frame_delay:
                 explosion_frame_index += 1
                 explosion_frame_counter = 0
-        elif explosion_frame_index >= len(explosion_frames):
+
+        def reset_explosion():
+            nonlocal explosion_frame_index, special_egg_destroyed
             special_egg_destroyed = False
             explosion_frame_index = -1
+
+        conditions = [
+            special_egg_destroyed and 0 <= explosion_frame_index < len(explosion_frames),
+            explosion_frame_index >= len(explosion_frames)
+        ]
+
+        actions = [perform_explosion, reset_explosion]
+
+        list(map(lambda args: args[0]() if args[1] else None, zip(actions, conditions)))
 
         screen.blit(player_img, player_rect)
 
@@ -437,9 +554,9 @@ def play_game():  # sourcery skip: low-code-quality
         offscreen_surface.fill((0, 0, 0))  # Clear the off-screen surface
 
         # Display the score and coins
-        font = pygame.font.Font(None, 36)
-        score_text = font.render(f"Score: {str(score)}", True, RED)
-        coins_text = font.render(str(coins), True, YELLOW)
+        font: Font = pygame.font.Font(None, 36)
+        score_text: Surface | SurfaceType = font.render(f"Score: {str(score)}", True, RED)
+        coins_text: Surface | SurfaceType = font.render(str(coins), True, YELLOW)
         screen.blit(coin_image, (10, 50))
         screen.blit(score_text, (10, 10))
         screen.blit(coins_text, (55, 50))
@@ -459,6 +576,8 @@ def play_game():  # sourcery skip: low-code-quality
     return targets, bullets
 
 
+@memoize
+@lru_cache(maxsize=None)
 def main_menu():
     selected_option = -1  # Initialize with no option selected
     options = ["Play", "Quit"]
@@ -480,8 +599,7 @@ def main_menu():
         current_time = pygame.time.get_ticks()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                exit_code()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_UP:
                     selected_option = (selected_option - 1) % len(options)
@@ -511,7 +629,7 @@ def main_menu():
         screen.fill(WHITE)
         screen.blit(background_image, (0, 0))
         title_y += 1 * numpy.sin(current_time / 60)
-        title_text = title_font.render("Chicken Cube Destroyers", True, RED)
+        title_text = title_font.render("Chicken Cube Destroyers", True, BLUE)
         title_rect = title_text.get_rect()
         title_rect.centerx = WIDTH // 2
         title_rect.y = title_y
@@ -548,7 +666,10 @@ def main_menu():
         pygame.display.flip()
 
 
+@lru_cache(maxsize=None)
 def exit_code():
+    print(
+        f"{Colors.OKMAGENTA}{Colors.BOLD}Saving game statistics{Colors.ENDC} {Colors.OKCYAN}{Colors.BOLD}Quitting pygame windows{Colors.ENDC}")
     pygame.display.quit()
     pygame.mixer.quit()
     pygame.font.quit()
