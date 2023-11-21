@@ -15,13 +15,17 @@ Welcome to **Chicken Cube Destroyers** - a simple shooting game built in Python 
 
 ## About the Game
 
-Chicken Cube Destroyers is a shooting game where you control a chicken to shoot down cubes falling from the sky. The game includes special targets, frozen targets, and more challenges as you progress.
+Chicken Cube Destroyers is a shooting game where you control a chicken to shoot down cubes falling from the sky. The game includes special targets, frozen targets, and more challenges as you progress. As you progress, you can use your coins in the marketplace to buy new power-ups, ablilties and also skins
 
 ## Features
 
-- Simple yet addictive gameplay.
-- Special targets and power-ups.
-- High score tracking.
+- Simple yet addictive, awesome gameplay.
+- RTX Support (Imcoming update)
+- Smooth Lighting for players and targets
+- Magnificient sound improvements
+- In-Game marketplaces using in-game coins.
+- Powerful targets and abilities
+- High score and Coins tracking.
 - Credits and version information.
 
 ## Requirements
@@ -38,3 +42,29 @@ To play the game, you need:
 
    ```bash
    git clone [https://github.com/PythonChicken123/Cube_Destroyers.git]
+   ```
+2. Move to project directory
+   ```bash
+   cd chicken-cube-destroyers
+   ```
+
+3. Install dependencies
+   ```bash
+   pip install -r requirements.txt
+   ```
+   
+4. Compile the code
+   ```bash
+   python3 main.py
+   ```
+## How to play
+Controls:
+- Move left and right: '←' '→'
+- Deploy a bullet: 'SPACE'
+
+## Credits
+This game is developed by PythonChicken123
+Future updates will be produced later
+
+## License
+This reposotiry is lisenced under the GNU General Public License v3.0
