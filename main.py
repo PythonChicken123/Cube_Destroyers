@@ -9,26 +9,26 @@ import importlib
 import subprocess
 import sys
 import os
-from sqlite3 import Connection, Cursor
-from typing import *
-
-from pygame.font import Font
 
 
 # ANSI escape codes for colors
 class Colors:
-    HEADER: str = '\033[95m'
-    OKBLUE: str = '\033[94m'
-    OKGREEN: str = '\033[92m'
-    WARNING: str = '\033[93m'
-    FAIL: str = '\033[91m'
-    ENDC: str = '\033[0m'
-    BOLD: str = '\033[1m'
-    UNDERLINE: str = '\033[4m'
-    OKMAGENTA: str = '\033[95m'
-    OKCYAN: str = '\033[96m'
-    OKYELLOW: str = '\033[93m'
-    OKORANGE: str = '\033[33m'
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+    OKMAGENTA = '\033[95m'
+    OKCYAN = '\033[96m'
+    OKYELLOW = '\033[93m'
+    OKORANGE = '\033[33m'
+
+    @classmethod
+    def get(cls, color_name):
+        return getattr(cls, color_name, '')
 
 
 # List of required libraries
@@ -49,6 +49,10 @@ for lib in required_libraries:
         from pygame import Surface, SurfaceType, Vector2, Rect
         from pygame.rect import RectType
         from pygame.locals import *
+        from pygame.font import Font
+        from pygame.time import Clock
+        from sqlite3 import Connection, Cursor
+        from typing import *
         import pygame
         import numpy
         import sqlite3
@@ -71,8 +75,14 @@ if missing_libraries:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
                 u'CompanyName.ProductName.SubProduct.VersionInformation')  # Arbitrary string
         from random import randint, choice
-        from pygame import Surface, SurfaceType
+        from pygame.mixer import Sound, SoundType, Channel
+        from pygame import Surface, SurfaceType, Vector2, Rect
         from pygame.rect import RectType
+        from pygame.locals import *
+        from pygame.font import Font
+        from pygame.time import Clock
+        from sqlite3 import Connection, Cursor
+        from typing import *
         import pygame
         import numpy
         import sqlite3
@@ -360,10 +370,10 @@ def play_game():  # sourcery skip: low-code-quality
     explosion_frame_counter: int = 0
     explosion_rect: Rect = pygame.Rect(0, 0, 80, 80)
 
-    clock = pygame.time.Clock()
-    running = True
-    spawn_timer = 0  # Initialize a timer for target spawning
-    max_targets = MAX_TARGETS  # Set the maximum number of targets
+    clock: Clock = pygame.time.Clock()
+    running: bool = True
+    spawn_timer: int = 0  # Initialize a timer for target spawning
+    max_targets: int = MAX_TARGETS  # Set the maximum number of targets
 
     coins, last_highest_score = initialize_player()  # Initialize player's coins
 
@@ -371,6 +381,7 @@ def play_game():  # sourcery skip: low-code-quality
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+                exit_code(coins=coins, high_score=last_highest_score)
 
         keys = pygame.key.get_pressed()
 
@@ -402,11 +413,13 @@ def play_game():  # sourcery skip: low-code-quality
             pygame.mixer.Sound(os.path.join('data/media/wind_bullet.mp3')).play()
             shoot_cooldown = SHOOT_COOLDOWN  # Set the cooldown timer
 
+        # Respond to the display when display is not active
         while not pygame.display.get_active():
-            list(map(lambda _: pygame.time.wait(1) or pygame.event.pump(), iterable))
+            list(map(lambda _: pygame.event.pump() or pygame.time.wait(1), iterable))
 
-        # Move and remove bullets
-        bullets = [(x, y - BULLET_SPEED) for x, y in bullets if y > 0.1]
+        # Move and remove bullets and assuming bullets is a list of (x, y) tuples
+        bullets = list(
+            map(lambda bullet: (bullet[0], bullet[1] - BULLET_SPEED), filter(lambda bullet: bullet[1] > 0.1, bullets)))
 
         list(map(lambda wall: pygame.draw.rect(screen, WHITE, wall), walls))
 
@@ -461,6 +474,7 @@ def play_game():  # sourcery skip: low-code-quality
             else:
                 pygame.draw.rect(screen, target['color'], target['rect'])
 
+            # Generation of new targets and termination of targets which touch the bottom of the screen
             new_targets = list(map(lambda target: target if target['rect'].bottom <= HEIGHT else None, targets))
             new_targets = list(filter(lambda target: target is not None, new_targets))
 
@@ -486,6 +500,9 @@ def play_game():  # sourcery skip: low-code-quality
 
         # Remove bullets after the iteration
         bullets = [(x, y) for x, y in bullets if (x, y) not in bullets_to_remove]
+
+        # Using map and filter to achieve the same effect
+        bullets = list(map(lambda bullet: bullet, filter(lambda bullet: bullet not in bullets_to_remove, bullets)))
 
         # Draw everything
         screen.blit(background_image, (0, 0))  # Set the background image
@@ -517,6 +534,7 @@ def play_game():  # sourcery skip: low-code-quality
 
         actions = [perform_explosion, reset_explosion]
 
+        # Perform the explosions after the special_target is removed
         list(map(lambda args: args[0]() if args[1] else None, zip(actions, conditions)))
 
         screen.blit(player_img, player_rect)
@@ -576,41 +594,34 @@ def play_game():  # sourcery skip: low-code-quality
     return targets, bullets
 
 
-@memoize
-@lru_cache(maxsize=None)
-def main_menu():
+def main_settings():
+    last_flash_time: int = pygame.time.get_ticks()
+    flash_interval: int = 250  # Flash every 250ms
+    text_flash: bool = True
     selected_option = -1  # Initialize with no option selected
-    options = ["Play", "Quit"]
-    last_flash_time = pygame.time.get_ticks()
-    flash_interval = 250  # Flash every 250ms
-    text_flash = True
-    title_y = 100  # Initial vertical position of the title
-    last_high_score = get_high_score()
-    high_score_text = high_score_font.render(f'HIGH SCORE :{str(last_high_score)}', True, LIGHT_BLUE)
-    high_score_rect = high_score_text.get_rect()
-    credits_text = credits_font.render("Credits: ", True, GREEN)
-    credits_rect = credits_text.get_rect()
-    credits_rect.topleft = (10, HEIGHT - 25)
-    version_text = version_font.render("Version: 1.3", True, BLUE)
-    version_rect = version_text.get_rect()
-    version_rect.topright = (WIDTH - 10, HEIGHT - 25)
+    options = ["3D Settings", "Sound Settings", "More Settings", "Back"]
+    slide_bar_value = [0.5, 0.7, 0.3, 0.8]
 
     while True:
         current_time = pygame.time.get_ticks()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                exit_code()
+                exit_code(coins=get_player_coins(), high_score=get_high_score())
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_UP:
                     selected_option = (selected_option - 1) % len(options)
                 if event.key == pygame.K_DOWN:
                     selected_option = (selected_option + 1) % len(options)
-                if selected_option == 0:
-                    if event.key == pygame.K_RETURN:
-                        return play_game()
-                elif selected_option == 1:
-                    if event.key == pygame.K_RETURN:
-                        exit_code()
+                if event.key == pygame.K_RETURN:
+                    if selected_option == len(options) - 1:
+                        return main_menu()  # Go back to the main menu
+                    elif selected_option == len(options) - 2:
+                        print("More settings")
+                    elif selected_option == len(options) - 3:
+                        print("Sound settings")
+                    elif selected_option == len(options) - 4:
+                        print("3D settings")
+                    # Handle other settings options here (e.g., open submenus or toggle settings)
             # Handle mouse click events
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left mouse button
@@ -622,10 +633,116 @@ def main_menu():
                         option_rect = pygame.Rect(x_text - 10, y_text, text.get_width() + 20, text.get_height() + 3)
                         if option_rect.collidepoint(x, y):
                             if i == 0:
-                                # Play the game
+                                return print("3D Settings")
+                            elif i == 1:
+                                return print("Sound Settings")
+                            elif i == 2:
+                                return print("More Settings")
+                            elif i == 3:
+                                return main_menu()
+        screen.fill(WHITE)
+        screen.blit(background_image, (0, 0))
+
+        title_text = title_font.render("Settings", True, BLUE)
+        title_rect = title_text.get_rect()
+        title_rect.centerx = WIDTH // 2
+        title_rect.y = 50
+        screen.blit(title_text, title_rect)
+
+        # Create option rectangles for mouse interaction
+        option_rects = []
+        for i, option in enumerate(zip(options, slide_bar_value)):
+            text_color = GREEN if i == selected_option and text_flash else RED
+            text = menu_font.render(option, True, text_color)
+            x = WIDTH // 2 - text.get_width() // 2
+            y = 300 + i * 60
+
+            option_rect = pygame.Rect(x - 10, y, text.get_width() + 20, text.get_height() + 3)
+            option_rects.append(option_rect)
+
+            # Check if the mouse cursor is over the option and highlight it
+            list(map(lambda i: pygame.draw.rect(screen, LIGHT_BLUE, option_rect,
+                                                border_radius=10) if option_rect.collidepoint(
+                pygame.mouse.get_pos()) else None, [i]))
+
+            list(map(lambda i: pygame.draw.rect(screen, BLUE, option_rect, border_radius=10,
+                                                width=2) if i == selected_option else None, [i]))
+
+            # Draw a vertical slider next to each option
+            slider_width = 10
+            slider_height = 100
+            slider_x = WIDTH // 4 * 3
+            slider_y = y + text.get_height() // 2 - slider_height // 2
+            pygame.draw.rect(screen, DARK_COLOR, (slider_x, slider_y, slider_width, slider_height))
+            slider_position = int(slide_bar_value[i] * (slider_height - 20)) + slider_y + 10
+            pygame.draw.rect(screen, BLUE, (slider_x, slider_position, slider_width, 10))
+
+            screen.blit(text, (x, y))
+
+        if current_time - last_flash_time >= flash_interval:
+            last_flash_time = current_time
+            text_flash = not text_flash
+
+        pygame.display.flip()
+        pygame.time.Clock().tick(60)
+
+
+@memoize
+@lru_cache(maxsize=None)
+def main_menu():
+    selected_option: int = -1  # Initialize with no option selected
+    options: list[str] = ["Play", "Settings", "Quit"]
+    last_flash_time: int = pygame.time.get_ticks()
+    flash_interval: int = 250  # Flash every 250ms
+    text_flash: bool = True
+    title_y: int = 100  # Initial vertical position of the title
+    coins = get_player_coins()
+    last_high_score: object = get_high_score()
+    high_score_text: Surface | SurfaceType = high_score_font.render(f'HIGH SCORE :{str(last_high_score)}', True,
+                                                                    LIGHT_BLUE)
+    high_score_rect: Rect | RectType = high_score_text.get_rect()
+    credits_text: Surface | SurfaceType = credits_font.render("Credits: ", True, GREEN)
+    credits_rect: Rect | RectType = credits_text.get_rect()
+    credits_rect.topleft = (10, HEIGHT - 25)
+    version_text: Surface | SurfaceType = version_font.render("Version: 1.3", True, BLUE)
+    version_rect: Rect | RectType = version_text.get_rect()
+    version_rect.topright = (WIDTH - 10, HEIGHT - 25)
+
+    while True:
+        current_time = pygame.time.get_ticks()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                exit_code(coins=coins, high_score=last_high_score)
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP:
+                    selected_option = (selected_option - 1) % len(options)
+                if event.key == pygame.K_DOWN:
+                    selected_option = (selected_option + 1) % len(options)
+                if selected_option == 0:
+                    if event.key == pygame.K_RETURN:
+                        return play_game()
+                elif selected_option == 1:
+                    if event.key == pygame.K_RETURN:
+                        return main_settings()
+                elif selected_option == 2:
+                    if event.key == pygame.K_RETURN:
+                        exit_code(coins=coins, high_score=last_high_score)
+            # Handle mouse click events
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:  # Left mouse button
+                    x, y = event.pos
+                    for i, option in enumerate(options):
+                        text = menu_font.render(option, True, RED)
+                        x_text = WIDTH // 2 - text.get_width() // 2
+                        y_text = 300 + i * 60
+                        option_rect = pygame.Rect(x_text - 10, y_text, text.get_width() + 20, text.get_height() + 3)
+                        if option_rect.collidepoint(x, y):
+                            if i == 0:
                                 return play_game()
                             elif i == 1:
-                                exit_code()
+                                return main_settings()
+                            elif i == 2:
+                                exit_code(coins=coins, high_score=last_high_score)
         screen.fill(WHITE)
         screen.blit(background_image, (0, 0))
         title_y += 1 * numpy.sin(current_time / 60)
@@ -646,11 +763,12 @@ def main_menu():
             option_rects.append(option_rect)
 
             # Check if the mouse cursor is over the option and highlight it
-            if option_rect.collidepoint(pygame.mouse.get_pos()):
-                pygame.draw.rect(screen, LIGHT_BLUE, option_rect, border_radius=10)
+            list(map(lambda i: pygame.draw.rect(screen, LIGHT_BLUE, option_rect,
+                                                border_radius=10) if option_rect.collidepoint(
+                pygame.mouse.get_pos()) else None, [i]))
 
-            if i == selected_option:
-                pygame.draw.rect(screen, BLUE, option_rect, border_radius=10, width=2)
+            list(map(lambda i: pygame.draw.rect(screen, BLUE, option_rect, border_radius=10,
+                                                width=2) if i == selected_option else None, [i]))
 
             screen.blit(text, (x, y))
 
@@ -667,9 +785,12 @@ def main_menu():
 
 
 @lru_cache(maxsize=None)
-def exit_code():
+def exit_code(coins, high_score):
     print(
         f"{Colors.OKMAGENTA}{Colors.BOLD}Saving game statistics{Colors.ENDC} {Colors.OKCYAN}{Colors.BOLD}Quitting pygame windows{Colors.ENDC}")
+    update_high_score(high_score)
+    update_player_coins(coins)
+    update_player_stats(coins, high_score)
     pygame.display.quit()
     pygame.mixer.quit()
     pygame.font.quit()
