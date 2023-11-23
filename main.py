@@ -602,6 +602,9 @@ def main_settings():
     options = ["3D Settings", "Sound Settings", "More Settings", "Back"]
     slide_bar_value = [0.5, 0.7, 0.3, 0.8]
 
+    # Draw a vertical slider next to each option
+    slider_width = 10
+    slider_height = 100
     while True:
         current_time = pygame.time.get_ticks()
         for event in pygame.event.get():
@@ -668,9 +671,6 @@ def main_settings():
             list(map(lambda i: pygame.draw.rect(screen, BLUE, option_rect, border_radius=10,
                                                 width=2) if i == selected_option else None, [i]))
 
-            # Draw a vertical slider next to each option
-            slider_width = 10
-            slider_height = 100
             slider_x = WIDTH // 4 * 3
             slider_y = y + text.get_height() // 2 - slider_height // 2
             pygame.draw.rect(screen, DARK_COLOR, (slider_x, slider_y, slider_width, slider_height))
