@@ -28,6 +28,11 @@ Chicken Cube Destroyers is a shooting game where you control a chicken to shoot 
 - Powerful targets and abilities
 - High score and Coins tracking with database support!
 - Credits and version information.
+- 8K Resolution Support (Upcoming)
+- Multithreading and performant sound libraries (Upcoming)
+- Windows-only most performant sound API with sys and os support (Upcoming)
+- Asyncorounus optimizations (Upcoming)
+- More Sprite Flags (Upcoming)
 
 ## Requirements
 
