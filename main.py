@@ -335,7 +335,7 @@ walls: list[Rect] = [
 
 
 @memoize
-async def play_game():  # sourcery skip: low-code-quality
+async def play_game():
     """ :return: """
     # Initialize game variables here
     bullets: list[tuple[Any, Any]] = []  # Store bullets as (x, y) tuples
