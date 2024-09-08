@@ -9,7 +9,7 @@ import importlib
 import subprocess
 import sys
 import os
-
+os.environ['SDL_HINT_WINDOWS_ENABLE_MESSAGELOOP'] = "0"
 
 # ANSI escape codes for colors
 class Colors:
@@ -32,7 +32,7 @@ class Colors:
 
 
 # List of required libraries
-required_libraries = ['pygame', 'numpy', 'PyMySQL']
+required_libraries = ['pygame', 'numpy', 'PyMySQL', 'asyncio']
 
 # Check if required libraries are installed and install them if missing
 missing_libraries = []
@@ -56,6 +56,7 @@ for lib in required_libraries:
         import pygame
         import numpy
         import sqlite3
+        import asyncio
 
         importlib.import_module(lib)
     except ModuleNotFoundError:
@@ -86,6 +87,7 @@ if missing_libraries:
         import pygame
         import numpy
         import sqlite3
+        import asyncio
     except Exception as e:
         print(f"{Colors.FAIL}An error occurred while installing the required libraries: {Colors.ENDC + str(e)}")
         sys.exit(1)
@@ -169,7 +171,7 @@ def calculate_lighting(distance):
         ) from exception
 
 
-def mixer_play(relative_path: Sound):
+async def mixer_play(relative_path: Sound):
     """
     :rtype: Sound
     :param relative_path:
@@ -333,7 +335,7 @@ walls: list[Rect] = [
 
 
 @memoize
-def play_game():  # sourcery skip: low-code-quality
+async def play_game():  # sourcery skip: low-code-quality
     """ :return: """
     # Initialize game variables here
     bullets: list[tuple[Any, Any]] = []  # Store bullets as (x, y) tuples
@@ -437,7 +439,7 @@ def play_game():  # sourcery skip: low-code-quality
 
         # Check if it's time to spawn a new target
         spawn_timer += 1
-        if spawn_timer >= numpy.sin(60):  # You can adjust this value to control target spawn frequency
+        if spawn_timer >= numpy.sin(160):  # You can adjust this value to control target spawn frequency
             if len(targets) < max_targets:
                 if randint(1, 100) < SPECIAL_TARGET_PROBABILITY:
                     # Create a special target
@@ -511,12 +513,12 @@ def play_game():  # sourcery skip: low-code-quality
         bullet_rects = list(map(lambda bullet: pygame.Rect(bullet[0] - 2, bullet[1], 4, 10), bullets))
         list(map(lambda rect: pygame.draw.rect(screen, RED, rect), bullet_rects))
 
-        def perform_explosion():
+        async def perform_explosion():
             nonlocal explosion_frame_index, explosion_frame_counter, special_egg_destroyed
 
             screen.blit(explosion_frames[explosion_frame_index], explosion_rect.topleft)
             explosion_frame_counter += 1
-            mixer_play(explosion_sound)
+            await mixer_play(explosion_sound)
 
             if explosion_frame_counter >= explosion_frame_delay:
                 explosion_frame_index += 1
@@ -720,7 +722,7 @@ def main_menu():
                     selected_option = (selected_option + 1) % len(options)
                 if selected_option == 0:
                     if event.key == pygame.K_RETURN:
-                        return play_game()
+                        return asyncio.run(play_game())
                 elif selected_option == 1:
                     if event.key == pygame.K_RETURN:
                         return main_settings()
@@ -738,7 +740,7 @@ def main_menu():
                         option_rect = pygame.Rect(x_text - 10, y_text, text.get_width() + 20, text.get_height() + 3)
                         if option_rect.collidepoint(x, y):
                             if i == 0:
-                                return play_game()
+                                return asyncio.run(play_game())
                             elif i == 1:
                                 return main_settings()
                             elif i == 2:
