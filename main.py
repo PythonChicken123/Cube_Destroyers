@@ -89,7 +89,7 @@ if missing_libraries:
         import sqlite3
         import asyncio
     except Exception as e:
-        print(f"{Colors.FAIL}An error occurred while installing the required libraries: {Colors.ENDC + str(e)}")
+        print(f"{Colors.FAIL}An error occurred while installing the required libraries: {Colors.ENDC + str(e)}\n Please use reinstall the latest version of python.\n Newer versions support various optimizations used in the code.")
         sys.exit(1)
 
 # Initialize Pygame and Mixer
