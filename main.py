@@ -6,7 +6,8 @@ This code has been previously reverted to an old version due to bug fixes
 # TODO: Convert from the wav to ogg format for performance
 # TODO: Ctypes optimizations for all operating systems
 # TODO: Cut unnecessary sounds such as no sound for more channel availbility
-# TODO: Boost math using numba and CUDA
+# TODO: Profile code to identify performance bottlenecks
+# TODO: Optimize identified bottlenecks, considering numba and CUDA if appropriate
 # TODO: Disable GIL (single-thread) python if using python 3.13
 # TODO: Targets tag extension
 # TODO: Fix the wall bug
