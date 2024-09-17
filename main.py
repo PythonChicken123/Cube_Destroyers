@@ -1,15 +1,29 @@
-# coding= UTF-8
+# coding=UTF-8
 """
 This code has been previously reverted to an old version due to bug fixes
-# TODO: Color printing coding
+# TODO: Color printing coding and fix default ANSI
+# TODO: Multiprocessing for preloading images with cached memory
+# TODO: Convert from the wav to ogg format for performance
+# TODO: Ctypes optimizations for all operating systems
+# TODO: Cut unnecessary sounds such as no sound for more channel availbility
+# TODO: Profile code to identify performance bottlenecks
+# TODO: Optimize identified bottlenecks, considering numba and CUDA if appropriate
+# TODO: Disable GIL (single-thread) python if using python 3.13
+# TODO: Targets tag extension
+# TODO: Fix the wall bug
+# TODO: Replace the raytracing lighting engine by the pygame-light2d
+# TODO: Replace the menu with pygame-menu with minimal importations
+# TODO: Use the icecream module for debugging (print())
 """
 
+from collections import defaultdict
 from functools import wraps, lru_cache
 import importlib
 import subprocess
+import threading
+import concurrent.futures
 import sys
 import os
-
 
 # ANSI escape codes for colors
 class Colors:
@@ -32,7 +46,7 @@ class Colors:
 
 
 # List of required libraries
-required_libraries = ['pygame', 'numpy', 'PyMySQL']
+required_libraries = ['pygame', 'numpy', 'asyncio', 'numba']
 
 # Check if required libraries are installed and install them if missing
 missing_libraries = []
@@ -40,10 +54,12 @@ for lib in required_libraries:
     try:
         if sys.platform.startswith('win'):
             import ctypes
-
-            # Configuration on the Windows file
+            # Configuration on the Windows file for visual fixes
+            os.environ['SDL_HINT_WINDOWS_ENABLE_MESSAGELOOP'] = "0"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
                 u'CompanyName.ProductName.SubProduct.VersionInformation')  # Arbitrary string
+
+        from numba import jit, float32, int32
         from random import randint, choice
         from pygame.mixer import Sound, SoundType, Channel
         from pygame import Surface, SurfaceType, Vector2, Rect
@@ -56,6 +72,7 @@ for lib in required_libraries:
         import pygame
         import numpy
         import sqlite3
+        import asyncio
 
         importlib.import_module(lib)
     except ModuleNotFoundError:
@@ -74,6 +91,7 @@ if missing_libraries:
 
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
                 u'CompanyName.ProductName.SubProduct.VersionInformation')  # Arbitrary string
+        from numba import jit, float32, int32
         from random import randint, choice
         from pygame.mixer import Sound, SoundType, Channel
         from pygame import Surface, SurfaceType, Vector2, Rect
@@ -86,11 +104,13 @@ if missing_libraries:
         import pygame
         import numpy
         import sqlite3
+        import asyncio
     except Exception as e:
         print(f"{Colors.FAIL}An error occurred while installing the required libraries: {Colors.ENDC + str(e)}")
         sys.exit(1)
 
 # Initialize Pygame and Mixer
+executor = concurrent.futures.ThreadPoolExecutor()
 pygame.init()
 pygame.mixer.pre_init(frequency=44100, size=-16, channels=16, buffer=512, devicename=None,
                       allowedchanges=AUDIO_ALLOW_FREQUENCY_CHANGE | AUDIO_ALLOW_CHANNELS_CHANGE)
@@ -153,40 +173,20 @@ def memoize(func):
 
 
 # Initialize player and light
-@lru_cache(maxsize=None)
-def calculate_lighting(distance):
-    try:
-        max_light: int
-        min_light: int
-        max_light, min_light = 255, 225
-        attenuation: float = 0.01  # Adjust this value for different lighting effects
-        # Ensure that distance is a positive value to prevent division by zero
-        intensity: int = max_light / (1 + attenuation * distance)
-        return max(min_light, intensity)
-    except Exception as exception:
-        raise AttributeError(
-            f"Error in calculate_lighting: {str(exception)}"
-        ) from exception
+@memoize
+@jit(int32(float32), nopython=True, fastmath=True, cache=True)
+def calculate_lighting(distance: float32) -> int32:
+    print("The raytracing machine has been called!")
+    max_light: int32 = 255
+    min_light: int32 = 225
+    attenuation: float32 = 0.01  # Adjust this value for different lighting effects
 
+    # Ensure that distance is positive
+    distance = (distance + abs(distance)) / 2.0
 
-def mixer_play(relative_path: Sound):
-    """
-    :rtype: Sound
-    :param relative_path:
-    """
-    if relative_path:
-        # Find a Channel to play multiple sounds with no buffer
-        channel: Channel = relative_path.play()
-        if not channel:
-            try:
-                channel = pygame.mixer.find_channel(force=True)
-                channel.play(relative_path)
-            except Exception as exception:
-                raise FileNotFoundError(
-                    f"An error occurred while searching for the following file '{relative_path}' : {exception}"
-                ) from exception
-        if channel:
-            relative_path.play()
+    # Calculate the lighting intensity with fast math
+    intensity = max_light / (1.0 + attenuation * distance)
+    return max(min_light, int(intensity))
 
 
 # Collect resource_path on PyInstaller --add_data for usage inside a executable file
@@ -197,12 +197,46 @@ def resource_path(relative_path):
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
 
+max_channels = pygame.mixer.get_num_channels() # Maximum channels depending on the system
+channels = [pygame.mixer.Channel(i) for i in range(max_channels)]
+
+def mixer_play(sound: Sound):
+    """
+    Play a sound using Pygame's mixer module in a blocking manner.
+    
+    :param sound: Pygame Sound object
+    """
+    if sound:
+        def play_sound():
+            # Try to find a free channel
+            free_channel = next((ch for ch in channels if not ch.get_busy()), None)
+            if free_channel is None:
+                # If no free channel is found, use the first channel (or any existing one)
+                free_channel = channels[0]
+            
+            if free_channel:
+                free_channel.play(sound)
+            else:
+                raise RuntimeError("No available mixer channel could be created.")
+
+        # Run play_sound in a separate thread to avoid blocking
+        threading.Thread(target=play_sound, daemon=True).start()
+
+# Async function to handle sound playback using threading
+async def play_sound_async(sound_path):
+    thread = threading.Thread(target=mixer_play, args=(sound_path,))
+    thread.start()    
 
 # Create the game window
 offscreen_surface: Surface = pygame.Surface((WIDTH, HEIGHT))
-screen: Surface | SurfaceType = pygame.display.set_mode((WIDTH, HEIGHT))
+screen: Surface | SurfaceType = pygame.display.set_mode((WIDTH, HEIGHT), DOUBLEBUF, 1)
 pygame.display.set_caption("Advanced Shooting Game")
 pygame.display.set_icon(pygame.image.load(resource_path('data\\image\\frozen_special_egg2.png')).convert_alpha())
+
+# Game Sounds
+explosion_sound: Sound = pygame.mixer.Sound(resource_path('data\\media\\explosion.wav'))
+
+# Sprite images
 
 # Main images
 background_image: Surface = pygame.image.load(resource_path('data\\image\\nebula2.png')).convert_alpha()
@@ -218,12 +252,11 @@ title_font: Font = pygame.font.Font(resource_path('data\\fonts\\OpenSans-ExtraBo
 big_message_font: Font = pygame.font.Font(resource_path('data\\fonts\\OpenSans-Bold.ttf'), 42)
 high_score_font: Font = pygame.font.Font(resource_path('data\\fonts\\Pixel.otf'), 12)
 
-
 # ___________________________________________ DATA BASE ________________________________________________________________
 
 @lru_cache(maxsize=None)
 def create_players_table():
-    connection: Connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    connection: Connection = sqlite3.connect(resource_path("data\\database\\game_data.db"))
     cursor: Cursor = connection.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS players (
@@ -243,7 +276,7 @@ create_players_table()
 @memoize
 @lru_cache(maxsize=None)
 def get_player_coins():
-    connection: Connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    connection: Connection = sqlite3.connect(resource_path("data\\database\\game_data.db"))
     cursor: Cursor = connection.cursor()
     cursor.execute("SELECT coins FROM players WHERE id=1")
     coins: tuple[list[int]] = cursor.fetchone()
@@ -256,7 +289,7 @@ def get_player_coins():
 @memoize
 @lru_cache(maxsize=None)
 def update_player_coins(coins):
-    connection: Connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    connection: Connection = sqlite3.connect(resource_path("data\\database\\game_data.db"))
     cursor: Cursor = connection.cursor()
     cursor.execute("UPDATE players SET coins = ? WHERE id = 1", (coins,))
     connection.commit()
@@ -267,14 +300,14 @@ def update_player_coins(coins):
 @memoize
 @lru_cache(maxsize=None)
 def update_player_stats(coins, highest_score):
-    connection: Connection = sqlite3.connect(os.path.join("data\\database\\game_data.db"))
+    connection: Connection = sqlite3.connect(resource_path("data\\database\\game_data.db"))
     cursor: Cursor = connection.cursor()
     cursor.execute("UPDATE players SET coins = ?, high_score = ? WHERE id = 1", (coins, highest_score))
     connection.commit()
     connection.close()
 
 
-# Initialize player
+# Initialize player database
 @memoize
 @lru_cache(maxsize=None)
 def initialize_player():
@@ -331,9 +364,41 @@ walls: list[Rect] = [
     pygame.Rect(700, 100, 20, 200),
 ]
 
+async def perform_explosion(explosion_frame_index, explosion_frame_counter, special_egg_destroyed, explosion_frames, explosion_rect, explosion_frame_delay):
+    if not special_egg_destroyed or not (0 <= explosion_frame_index < len(explosion_frames)):
+        return explosion_frame_index, explosion_frame_counter, special_egg_destroyed
+    
+    screen.blit(explosion_frames[explosion_frame_index], explosion_rect.topleft)
+    explosion_frame_counter += 1
+    
+    # Simulate an asynchronous operation for playing sound
+    # loop = asyncio.get_event_loop()
+    # await loop.run_in_executor(executor, mixer_play, explosion_sound)
+    await play_sound_async(explosion_sound)
+
+    if explosion_frame_counter >= explosion_frame_delay:
+        explosion_frame_index += 1
+        explosion_frame_counter = 0
+
+    # Return the updated values
+    return explosion_frame_index, explosion_frame_counter, special_egg_destroyed
+
+async def handle_explosions(explosion_frame_index, explosion_frame_counter, special_egg_destroyed, explosion_frames, explosion_rect, explosion_frame_delay):
+    if special_egg_destroyed and 0 <= explosion_frame_index < len(explosion_frames):
+        # Perform explosion if conditions are met
+        explosion_frame_index, explosion_frame_counter, special_egg_destroyed = await perform_explosion(
+            explosion_frame_index, explosion_frame_counter, special_egg_destroyed,
+            explosion_frames, explosion_rect, explosion_frame_delay
+        )
+    elif explosion_frame_index >= len(explosion_frames):
+        # Reset values if the explosion frame index is out of bounds
+        explosion_frame_index = -1
+        special_egg_destroyed = False
+    
+    return explosion_frame_index, explosion_frame_counter, special_egg_destroyed
 
 @memoize
-def play_game():  # sourcery skip: low-code-quality
+async def play_game():
     """ :return: """
     # Initialize game variables here
     bullets: list[tuple[Any, Any]] = []  # Store bullets as (x, y) tuples
@@ -364,7 +429,7 @@ def play_game():  # sourcery skip: low-code-quality
     explosion_frames: list[Surface | SurfaceType] = [
         pygame.transform.scale(pygame.image.load(os.path.join('data', 'image', 'explosion2.gif')), (160, 160)),
         pygame.transform.scale(pygame.image.load(os.path.join('data', 'image', 'explosion1.gif')), (160, 160))]
-    explosion_sound: Sound = pygame.mixer.Sound(resource_path('data\\media\\explosion.wav'))
+    
     explosion_frame_index: int = 0
     explosion_frame_delay: int = 10
     explosion_frame_counter: int = 0
@@ -437,7 +502,7 @@ def play_game():  # sourcery skip: low-code-quality
 
         # Check if it's time to spawn a new target
         spawn_timer += 1
-        if spawn_timer >= numpy.sin(60):  # You can adjust this value to control target spawn frequency
+        if spawn_timer >= numpy.sin(12000):  # You can adjust this value to control target spawn frequency
             if len(targets) < max_targets:
                 if randint(1, 100) < SPECIAL_TARGET_PROBABILITY:
                     # Create a special target
@@ -510,33 +575,9 @@ def play_game():  # sourcery skip: low-code-quality
         # Draw bullets and targets first
         bullet_rects = list(map(lambda bullet: pygame.Rect(bullet[0] - 2, bullet[1], 4, 10), bullets))
         list(map(lambda rect: pygame.draw.rect(screen, RED, rect), bullet_rects))
-
-        def perform_explosion():
-            nonlocal explosion_frame_index, explosion_frame_counter, special_egg_destroyed
-
-            screen.blit(explosion_frames[explosion_frame_index], explosion_rect.topleft)
-            explosion_frame_counter += 1
-            mixer_play(explosion_sound)
-
-            if explosion_frame_counter >= explosion_frame_delay:
-                explosion_frame_index += 1
-                explosion_frame_counter = 0
-
-        def reset_explosion():
-            nonlocal explosion_frame_index, special_egg_destroyed
-            special_egg_destroyed = False
-            explosion_frame_index = -1
-
-        conditions = [
-            special_egg_destroyed and 0 <= explosion_frame_index < len(explosion_frames),
-            explosion_frame_index >= len(explosion_frames)
-        ]
-
-        actions = [perform_explosion, reset_explosion]
-
-        # Perform the explosions after the special_target is removed
-        list(map(lambda args: args[0]() if args[1] else None, zip(actions, conditions)))
-
+        explosion_frame_index, explosion_frame_counter, special_egg_destroyed = await handle_explosions(
+            explosion_frame_index, explosion_frame_counter, special_egg_destroyed, explosion_frames, explosion_rect, explosion_frame_delay
+        )
         screen.blit(player_img, player_rect)
 
         # Draw the targets
@@ -580,9 +621,10 @@ def play_game():  # sourcery skip: low-code-quality
         screen.blit(coins_text, (55, 50))
 
         pygame.display.flip()
-        clock.tick(60)
+        await asyncio.sleep(0)  # This allows other async tasks to run
+        clock.tick(FPS)
 
-    if score > last_highest_score:
+    if score >= last_highest_score:
         last_highest_score = score
 
     # Update coins and high score in the database
@@ -684,7 +726,7 @@ def main_settings():
             text_flash = not text_flash
 
         pygame.display.flip()
-        pygame.time.Clock().tick(60)
+        pygame.time.Clock().tick(120)
 
 
 @memoize
@@ -704,7 +746,7 @@ def main_menu():
     credits_text: Surface | SurfaceType = credits_font.render("Credits: ", True, GREEN)
     credits_rect: Rect | RectType = credits_text.get_rect()
     credits_rect.topleft = (10, HEIGHT - 25)
-    version_text: Surface | SurfaceType = version_font.render("Version: 1.3", True, BLUE)
+    version_text: Surface | SurfaceType = version_font.render("Version: 1.4-alpha", True, BLUE)
     version_rect: Rect | RectType = version_text.get_rect()
     version_rect.topright = (WIDTH - 10, HEIGHT - 25)
 
@@ -720,7 +762,7 @@ def main_menu():
                     selected_option = (selected_option + 1) % len(options)
                 if selected_option == 0:
                     if event.key == pygame.K_RETURN:
-                        return play_game()
+                        return asyncio.run(play_game())
                 elif selected_option == 1:
                     if event.key == pygame.K_RETURN:
                         return main_settings()
@@ -738,7 +780,7 @@ def main_menu():
                         option_rect = pygame.Rect(x_text - 10, y_text, text.get_width() + 20, text.get_height() + 3)
                         if option_rect.collidepoint(x, y):
                             if i == 0:
-                                return play_game()
+                                return asyncio.run(play_game())
                             elif i == 1:
                                 return main_settings()
                             elif i == 2:
@@ -796,10 +838,6 @@ def exit_code(coins, high_score):
     pygame.font.quit()
     pygame.quit()
     sys.exit()
-
-
-# Initialize Pygame
-pygame.init()
 
 # Constants
 pygame.display.set_caption("Simple Shooting Game")
