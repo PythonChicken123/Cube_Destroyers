@@ -387,10 +387,12 @@ def move_bullets(bullets: numpy.ndarray, bullet_speed: int):
 def check_collisions(bullets: numpy.ndarray, targets: numpy.ndarray):
     hit_indices = []
     for i, target in enumerate(targets):
-        for j, bullet in enumerate(bullets):
-            if (target[0] <= bullet[0] <= target[0] + target[2]) and \
-                    (target[1] <= bullet[1] <= target[1] + target[3]):
-                hit_indices.append((i, j))
+        hit_indices.extend(
+            (i, j)
+            for j, bullet in enumerate(bullets)
+            if (target[0] <= bullet[0] <= target[0] + target[2])
+            and (target[1] <= bullet[1] <= target[1] + target[3])
+        )
     return hit_indices
 
 
