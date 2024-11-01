@@ -311,16 +311,12 @@ def update_player_stats(coins: int, score: int):
     ])
     save_player_data(df)
 
-
+# Unused overcomplicated function
+"""   
 # Fast computation of coins (using Numba for optimization)
 @jit(nopython=True, cache=True, fastmath=True)
 def compute_total_coins(coins_array: numpy.ndarray) -> int:
-    """ Compute the total coins using Numba for maximum performance. """
-    total = 0
-    for coin in coins_array:
-        total += coin
-    return total
-
+    return sum(coins_array) """
 
 # Initialize player database (polars)
 def initialize_player():
