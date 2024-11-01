@@ -259,15 +259,14 @@ def load_player_data():
     data_path = resource_path("data/game_data.parquet")
     if os.path.exists(data_path):
         return pl.read_parquet(data_path)
-    else:
-        # Initialize with default data if file does not exist
-        data = pl.DataFrame({
-            "id": [1],
-            "coins": [0],
-            "high_score": [0]
-        })
-        save_player_data(data)
-        return data
+    # Initialize with default data if file does not exist
+    data = pl.DataFrame({
+        "id": [1],
+        "coins": [0],
+        "high_score": [0]
+    })
+    save_player_data(data)
+    return data
 
 
 # Save player data
