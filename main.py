@@ -184,7 +184,7 @@ COLORS = [
 # Initialize player and light
 try:
     from lighting import calculate_lighting  # type: ignore
-except Exception as e:
+except ImportError as e:
     @memoize
     @jit(int32(float32), nopython=True, fastmath=True, cache=True)
     def calculate_lighting(distance: float32) -> int32:
@@ -198,7 +198,7 @@ except Exception as e:
         # Calculate the lighting intensity with fast math
         intensity = max_light / (1.0 + attenuation * distance)
         return max(min_light, int(intensity))
-    raise Exception("\nPlease run setup.py for the cythonized lighting library.\n Using unoptimized lighting library. The game might be unplayable. \n\n", e)
+    raise ImportWarning("\nPlease run setup.py for the cythonized lighting library.\n Using unoptimized lighting library. The game might be unplayable. \n\n", e)
 
 
 def mixer_play(sound: Sound):
@@ -221,7 +221,7 @@ def mixer_play(sound: Sound):
                 raise RuntimeError("No available mixer channel could be created.")
 
         # Run play_sound in a separate thread to avoid blocking
-        threading.Thread(target=play_sound, daemon=True).start()
+        executor.submit(play_sound)
 
 # Create the game window
 offscreen_surface: Surface = pygame.Surface((WIDTH, HEIGHT))
