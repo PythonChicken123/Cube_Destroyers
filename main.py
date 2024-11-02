@@ -44,6 +44,7 @@ from collections import defaultdict
 from functools import wraps, lru_cache
 from concurrent.futures import ThreadPoolExecutor
 import threading
+import platform
 import ctypes
 import sys
 import os
@@ -127,13 +128,28 @@ try:
                           allowedchanges=AUDIO_ALLOW_FREQUENCY_CHANGE | AUDIO_ALLOW_CHANNELS_CHANGE)
     pygame.mixer.init(frequency=44100, size=-16, channels=max_channels, buffer=512, devicename=None,
                       allowedchanges=AUDIO_ALLOW_FREQUENCY_CHANGE | AUDIO_ALLOW_CHANNELS_CHANGE | AUDIO_ALLOW_FORMAT_CHANGE)
-    executor = ThreadPoolExecutor(max_workers=max_channels) # TODO:
+    executor = ThreadPoolExecutor(max_workers=max_channels)
     explosion_sound: Sound = pygame.mixer.Sound(resource_path('data/media/explosion.wav'))
     bullet_sound: Sound = pygame.mixer.Sound(resource_path('data/media/wind_bullet.mp3'))
 except pygame.error as e:
     print(f"Warning: Mixer initialization failed: {e}")
     pygame.mixer = None
     executor = ThreadPoolExecutor()
+
+if platform.system() == "Windows":
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32
+    QueryPerformanceCounter = ctypes.c_int64()
+    QueryPerformanceFrequency = ctypes.c_int64()
+    kernel32.QueryPerformanceFrequency(ctypes.byref(QueryPerformanceFrequency))
+    perf_frequency = QueryPerformanceFrequency.value
+
+    def perf_counter():
+        kernel32.QueryPerformanceCounter(ctypes.byref(QueryPerformanceCounter))
+        return QueryPerformanceCounter.value / perf_frequency
+else:
+    from timeit import default_timer as perf_counter
 
 # Constants
 WIDTH, HEIGHT = 900, 600
@@ -418,7 +434,7 @@ def play_game():
     deceleration: float = DECELERATION  # Deceleration factor for slippery movement
     special_egg_destroyed: bool = False
     iterable = range(10)
-
+    last_spawn_time = perf_counter()
     player_img: Surface = pygame.image.load(resource_path('data/image/chicken2.png')).convert_alpha()
     player_img = pygame.transform.rotozoom(player_img, 0, 2.0)
     player_img = pygame.transform.scale(player_img, (50, 75))
@@ -502,8 +518,9 @@ def play_game():
 
         # targets per second (TPS) = (1000 / FPS) / spawn_timer
         # Check if it's time to spawn a new target
-        spawn_timer += 1
-        if spawn_timer >= 25: # 0.67 TPS.
+        current_time = perf_counter()
+        if current_time - last_spawn_time >= 1.5: # 0.67 TPS.
+            last_spawn_time = current_time
             if len(targets) < MAX_TARGETS:
                 if randint(1, 100) < SPECIAL_TARGET_PROBABILITY:
                     # Create a special target
@@ -527,7 +544,6 @@ def play_game():
                     targets.append(
                         {'rect': normal_target, 'color': normal_color, 'mask': normal_mask, 'health': normal_health, 'score': 1,
                          'coins': randint(1, 2), 'image': normal_target_image, 'frozen': normal_frozen, 'is_special': False})
-            spawn_timer = 0  # Reset the spawn timer
 
         # Move and remove targets
         new_targets = []
@@ -791,7 +807,7 @@ def main_menu():
                                 exit_code(coins=coins, score=last_high_score)
         screen.fill(WHITE)
         screen.blit(background_image, (0, 0))
-        title_y += 1 * numpy.sin(current_time/ 60)
+        title_y += 1 * numpy.sin(current_time / 60)
         title_text = title_font.render("Chicken Cube Destroyers", True, BLUE)
         title_rect = title_text.get_rect()
         title_rect.centerx = WIDTH // 2
