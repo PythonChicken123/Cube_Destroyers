@@ -4,10 +4,12 @@ Current Priority:
 # TODO: Add waves of entities based on player level:
 
 High Priority:
+# TODO: Feature every egg a shake effect on hit
 # TODO: Fix the wall bug (Re-texturing is required)
 # TODO: Retexture and use proper fonts
 # TODO: Use Delta Time
 Medium Priority
+# TODO: Extend the screen for in-game HUD (hotbar, coins, hearts)
 # TODO: ANSI fix should belong before libraries
 # TODO: Replace the raytracing lighting engine by the pygame-light2d
 # TODO: Replace the menu with pygame-menu with minimal importations
