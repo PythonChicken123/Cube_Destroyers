@@ -1,4 +1,9 @@
 [![Python application](https://github.com/PythonChicken123/Cube_Destroyers/actions/workflows/python-app.yml/badge.svg?branch=sourcery%2Fmain&event=deployment_status)](https://github.com/PythonChicken123/Cube_Destroyers/actions/workflows/python-app.yml)
+
+> [!CAUTION]
+> Download the latest releases at [Cube Destroyers 1.5](https://github.com/PythonChicken123/Cube_Destroyers/pull/5).
+> This development adds new features and more enchancements, view the entire at the changelog
+
 # Chicken Cube Destroyers
 
 Welcome to the original **Chicken Cube Destroyers** - a complex shooting game with many features built in Python using Pygame.
