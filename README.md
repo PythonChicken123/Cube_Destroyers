@@ -31,7 +31,7 @@ Welcome to the original **Chicken Cube Destroyers** - a complex shooting game wi
 
 ## About the Game
 [Back story]
-The Rocket exploded, releasing millions of eggs higher on sequence. All the chickens fell apart, for only one unique chicken to survive. It's only weakness is eggs. In order to complete the mission, all the eggs shall be avoided at all costs. Are you lucky enough to survive?
+The Rocket exploded, releasing millions of eggs higher on sequence. All the chickens fell apart, for only one unique chicken to survive. It's only weakness is eggs. There is no end. Are you lucky enough to survive?
 
 Chicken Cube Destroyers is a shooting game where you control a chicken to shoot down egg falling from the sky. The game includes special targets, frozen targets, and more challenges as you progress. As you progress, you can use your coins in the marketplace to buy new power-ups, ablilties and also skins. These power-ups and abilities become useful as you progress. Bosses with unpredictable movement appear.
 
